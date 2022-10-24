@@ -1,15 +1,5 @@
 ﻿namespace Raft
 
-/// LogIndex is indexed from 1. We use 0 to indicate "before any history has started".
-[<Measure>]
-type LogIndex
-
-[<Measure>]
-type Term
-
-[<Measure>]
-type ServerId
-
 /// Server state which need not survive a server crash.
 type VolatileState =
     {
@@ -20,15 +10,6 @@ type VolatileState =
         // (We'll soon learn a better value of CommitIndex as we start receiving messages again.)
         CommitIndex : int<LogIndex>
         LastApplied : int<LogIndex>
-    }
-
-/// Server state which must survive a server crash.
-type PersistentState<'a> =
-    {
-        CurrentTerm : int<Term>
-        Log : ('a * int<Term>) array
-        /// If there's an election ongoing, who did I vote for?
-        VotedFor : int<ServerId> option
     }
 
 type LeaderState =
@@ -107,9 +88,9 @@ type ServerSpecialisation =
 
 type Server<'a> =
     {
-        VolatileState : VolatileState
-        PersistentState : PersistentState<'a>
-        Type : ServerSpecialisation
+        mutable VolatileState : VolatileState
+        PersistentState : IPersistentState<'a>
+        mutable Type : ServerSpecialisation
         Timeout : unit -> unit
         OutboundMessageChannel : int<ServerId> -> Message<'a> -> unit
     }
@@ -137,33 +118,18 @@ module Server =
                     CommitIndex = 0<LogIndex>
                     LastApplied = 0<LogIndex>
                 }
-            PersistentState =
-                {
-                    CurrentTerm = 0<Term>
-                    Log = [||]
-                    VotedFor = None
-                }
+            PersistentState = InMemoryPersistentState ()
             Timeout = fun () -> ()
         }
 
     /// Returns the new state of the same server.
-    let processMessage<'a> (message : Message<'a>) (s : Server<'a>) : Server<'a> =
+    let processMessage<'a> (message : Message<'a>) (s : Server<'a>) : unit =
         // First, see if this message comes from a future term.
         // (This is `UpdateTerm` from the TLA+.)
-        let s =
-            if message.Term > s.PersistentState.CurrentTerm then
-                // We're definitely out of date. Switch to follower mode.
-                { s with
-                    Type = Follower
-                    PersistentState =
-                        { s.PersistentState with
-                            VotedFor = None
-                            CurrentTerm = message.Term
-                        }
-                }
-            // TODO when persistence is modelled: persist this
-            else
-                s
+        if message.Term > s.PersistentState.CurrentTerm then
+            // We're definitely out of date. Switch to follower mode.
+            s.Type <- Follower
+            s.PersistentState.AdvanceToTerm message.Term
 
         match message with
         | RequestVote message ->
@@ -173,10 +139,12 @@ module Server =
             // The following clauses define either condition under which we accept that the candidate has more data
             // than we do, and so could be a more suitable leader than us.
 
+            // TODO collapse these clauses, it'll be much neater
+
             let messageSupersedesMe =
                 // Is the candidate advertising a later term than our last-persisted write was made at?
                 // (That would mean it's far in the future of us.)
-                match Array.tryLast s.PersistentState.Log with
+                match s.PersistentState.GetLastLogEntry () with
                 | Some (_, ourLastTerm) -> snd message.CandidateLastLogEntry > ourLastTerm
                 | None ->
                     // We have persisted no history at all!
@@ -184,11 +152,10 @@ module Server =
 
             let messageExtendsMe =
                 // Do we agree what the current term is, is the candidate advertising a more advanced log than us?
-                match Array.tryLast s.PersistentState.Log with
+                match s.PersistentState.GetLastLogEntry () with
                 | Some (_, ourLastTerm) ->
                     snd message.CandidateLastLogEntry = ourLastTerm
-                    && fst message.CandidateLastLogEntry
-                       >= (Array.length s.PersistentState.Log) * 1<LogIndex>
+                    && fst message.CandidateLastLogEntry >= s.PersistentState.CurrentLogIndex
                 | None ->
                     // We've persisted no history; the candidate needs to also be at the start of history,
                     // or else we'd have already considered them in the `messageSupersedesMe` check.
@@ -229,23 +196,13 @@ module Server =
                 // case we just end up not participating in an election.)
                 // TODO when this is made mutable etc: call Persist here
 
-                let toReturn =
-                    { s with
-                        PersistentState =
-                            { s.PersistentState with
-                                VotedFor = Some message.CandidateId
-                            }
-                    }
+                s.PersistentState.Vote message.CandidateId
 
                 {
                     VoterTerm = s.PersistentState.CurrentTerm
                     VoteGranted = true
                 }
                 |> message.ReplyChannel
-
-                toReturn
-            else
-                s
 
         | AppendEntries message ->
             // This was guaranteed above.
@@ -259,20 +216,16 @@ module Server =
                 }
                 |> message.ReplyChannel
 
-                s
             else
 
             // This was guaranteed immediately above: we agree that the message is being sent by the current leader.
             assert (message.LeaderTerm = s.PersistentState.CurrentTerm)
 
-            let heartbeat (message : AppendEntriesMessage<'a>) (s : Server<'a>) =
+            let heartbeat (message : AppendEntriesMessage<'a>) (s : Server<'a>) : unit =
                 // Just a heartbeat; no change to our log is required.
-                let toReturn =
-                    { s with
-                        VolatileState =
-                            { s.VolatileState with
-                                CommitIndex = message.LeaderCommitIndex
-                            }
+                s.VolatileState <-
+                    { s.VolatileState with
+                        CommitIndex = message.LeaderCommitIndex
                     }
 
                 {
@@ -281,9 +234,7 @@ module Server =
                 }
                 |> message.ReplyChannel
 
-                toReturn
-
-            let acceptRequest (s : Server<'a>) : Server<'a> =
+            let acceptRequest (s : Server<'a>) : unit =
                 assert (s.Type = Follower)
 
                 match message.NewEntry with
@@ -293,7 +244,7 @@ module Server =
 
                 let desiredLogInsertionPosition = message.PrevLogEntry.Index + 1<LogIndex>
 
-                match getLogEntry desiredLogInsertionPosition s.PersistentState.Log with
+                match s.PersistentState.GetLogEntry desiredLogInsertionPosition with
                 | Some (_, existingTerm) when toInsertTerm = existingTerm ->
                     // This is already persisted. Moreover, the value that we persisted came from the term we're
                     // currently processing, so in particular came from the same leader and hence won't conflict
@@ -301,16 +252,8 @@ module Server =
                     heartbeat message s
                 | Some (_, existingTerm) ->
                     // The leader's message conflicts with what we persisted. Defer to the leader.
-                    // TODO when persistence is modelled: model it here
-                    let toReturn =
-                        { s with
-                            PersistentState =
-                                { s.PersistentState with
-                                    Log =
-                                        truncateLog desiredLogInsertionPosition s.PersistentState.Log
-                                        |> replaceLog desiredLogInsertionPosition (toInsert, toInsertTerm)
-                                }
-                        }
+                    s.PersistentState.TruncateLog (desiredLogInsertionPosition - 1<LogIndex>)
+                    s.PersistentState.AppendToLog toInsert toInsertTerm
 
                     {
                         Success = true
@@ -318,29 +261,19 @@ module Server =
                     }
                     |> message.ReplyChannel
 
-                    toReturn
                 | None ->
                     // The leader knows what we've committed, so it won't try and give us anything further than
                     // the element immediately past our persisted log.
                     // TODO - why can't this be -1?
-                    assert (desiredLogInsertionPosition = (1 + s.PersistentState.Log.Length) * 1<LogIndex>)
+                    assert (desiredLogInsertionPosition = 1<LogIndex> + s.PersistentState.CurrentLogIndex)
                     // The leader's message is after our log. Append.
-                    // TODO when persistence is modelled: persist it here.
-                    let toReturn =
-                        { s with
-                            PersistentState =
-                                { s.PersistentState with
-                                    Log = Array.append s.PersistentState.Log [| (toInsert, toInsertTerm) |]
-                                }
-                        }
+                    s.PersistentState.AppendToLog toInsert toInsertTerm
 
                     {
                         Success = true
                         FollowerTerm = s.PersistentState.CurrentTerm
                     }
                     |> message.ReplyChannel
-
-                    toReturn
 
             let logIsConsistent (message : AppendEntriesMessage<'a>) (s : Server<'a>) : bool =
                 if message.PrevLogEntry.Index = 0<LogIndex> then
@@ -349,7 +282,7 @@ module Server =
                     true
                 else
 
-                match getLogEntry message.PrevLogEntry.Index s.PersistentState.Log with
+                match s.PersistentState.GetLogEntry message.PrevLogEntry.Index with
                 | None ->
                     // The leader's advertised commit is ahead of our history.
                     false
@@ -378,18 +311,13 @@ module Server =
                     }
                     |> message.ReplyChannel
 
-                    s
-
                 else
                     acceptRequest s
 
             | Candidate ->
                 // We've already verified that the message was sent from a leader in the current term, so we have
                 // lost the election.
-                let s =
-                    { s with
-                        Type = Follower
-                    }
+                s.Type <- Follower
                 // TODO: why does this assertion hold?
                 assert (logIsConsistent message s)
                 acceptRequest s
@@ -411,12 +339,7 @@ module InMemoryCluster =
         let locker = obj ()
 
         let messageChannel (serverId : int<ServerId>) (message : Message<'a>) : unit =
-            lock
-                locker
-                (fun () ->
-                    let newServer = Server.processMessage message servers.[serverId / 1<ServerId>]
-                    servers.[serverId / 1<ServerId>] <- newServer
-                )
+            lock locker (fun () -> Server.processMessage message servers.[serverId / 1<ServerId>])
 
         for s in 0 .. servers.Length - 1 do
             servers.[s] <- Server.create messageChannel
