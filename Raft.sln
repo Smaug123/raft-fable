@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Raft", "Raft\Raft.fsproj", "{A82FE119-6F94-45AD-A643-274240D48C71}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Raft.Test", "Raft.Test\Raft.Test.fsproj", "{2807D236-2D29-45A8-AC06-1662F9629B64}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A82FE119-6F94-45AD-A643-274240D48C71}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A82FE119-6F94-45AD-A643-274240D48C71}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A82FE119-6F94-45AD-A643-274240D48C71}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A82FE119-6F94-45AD-A643-274240D48C71}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2807D236-2D29-45A8-AC06-1662F9629B64}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2807D236-2D29-45A8-AC06-1662F9629B64}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2807D236-2D29-45A8-AC06-1662F9629B64}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2807D236-2D29-45A8-AC06-1662F9629B64}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
