@@ -1,0 +1,29 @@
+name: .NET Core
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 6.0.400
+    - name: Install dependencies
+      run: dotnet restore Raft.sln
+    - name: Build
+      run: dotnet build Raft.sln --configuration Release --no-restore
+    - name: Test
+      run: dotnet test Raft.sln --no-restore --verbosity normal
+    - name: Install Fantomas
+      run: dotnet tool restore
+    - name: Run Fantomas
+      run: dotnet tool run fantomas --check -r .
