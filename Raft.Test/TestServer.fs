@@ -9,17 +9,10 @@ open FsUnitTyped
 module TestServer =
 
     [<Test>]
-    let foo () =
+    let ``Startup sequence, first fumbling steps`` () =
         let cluster = InMemoryCluster.make<int> true 5
 
-        let logger, logs =
-            let logs = ResizeArray ()
-            let logLine (s : string) = lock logs (fun () -> logs.Add s)
-
-            let freezeLogs () =
-                lock logs (fun () -> logs |> Seq.toList)
-
-            logLine, freezeLogs
+        let logger, logs = TestLogger.make ()
 
         // Candidate 1 asks server 0 to vote for it.
 
@@ -62,3 +55,19 @@ module TestServer =
         |> cluster.SendMessage 0<ServerId>
 
         calls.Value |> shouldEqual 0
+
+    [<Test>]
+    let ``Startup sequence in prod`` () =
+        let cluster = InMemoryCluster.make<int> false 5
+
+        cluster.Servers.[0].TriggerTimeout ()
+        cluster.Servers.[0].Sync ()
+
+        // We sent a message to every other server; process them.
+        for i in 1..4 do
+            cluster.Servers.[i].Sync ()
+
+        cluster.Servers.[0].State |> shouldEqual ServerStatus.Leader
+
+        for i in 1..4 do
+            cluster.Servers.[i].State |> shouldEqual ServerStatus.Follower

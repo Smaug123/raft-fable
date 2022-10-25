@@ -1,5 +1,7 @@
 namespace Raft
 
+open System.Threading
+
 type IPersistentState<'a> =
     abstract CurrentTerm : int<Term>
     /// If I know about an election in my CurrentTerm, who did I vote for during that election?
@@ -12,26 +14,31 @@ type IPersistentState<'a> =
     abstract TruncateLog : int<LogIndex> -> unit
     abstract GetLogEntry : int<LogIndex> -> ('a * int<Term>) option
     abstract CurrentLogIndex : int<LogIndex>
-    abstract GetLastLogEntry : unit -> ('a * int<Term>) option
+    abstract GetLastLogEntry : unit -> (int<LogIndex> * ('a * int<Term>)) option
     abstract AdvanceToTerm : int<Term> -> unit
+    abstract IncrementTerm : unit -> unit
     abstract Vote : int<ServerId> -> unit
 
 /// Server state which must survive a server crash.
 [<Class>]
 type InMemoryPersistentState<'a> () =
-    let mutable currentTerm = 0<Term>
+    let mutable currentTerm = 0
     let mutable votedFor : int<ServerId> option = None
     let log = ResizeArray<'a * int<Term>> ()
 
     member this.GetLog () = log |> List.ofSeq
 
     interface IPersistentState<'a> with
-        member this.CurrentTerm = currentTerm
+        member this.CurrentTerm = currentTerm * 1<Term>
+
+        member this.IncrementTerm () =
+            Interlocked.Increment &currentTerm |> ignore
+
         member this.VotedFor = votedFor
         member this.Vote id = votedFor <- Some id
 
         member this.AdvanceToTerm term =
-            currentTerm <- term
+            currentTerm <- term / 1<Term>
             votedFor <- None
 
         member this.AppendToLog entry term = log.Add (entry, term)
@@ -44,7 +51,10 @@ type InMemoryPersistentState<'a> () =
                 log.RemoveRange (position, log.Count - position)
 
         member this.GetLastLogEntry () =
-            if log.Count = 0 then None else Some log.[log.Count - 1]
+            if log.Count = 0 then
+                None
+            else
+                Some (log.Count * 1<LogIndex>, log.[log.Count - 1])
 
         member this.GetLogEntry position =
             let position = position / 1<LogIndex>

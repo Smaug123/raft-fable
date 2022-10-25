@@ -50,7 +50,7 @@ module TestInMemoryPersistentState =
             | Some entry ->
                 (uut :> IPersistentState<_>).TruncateLog truncate
 
-                (uut :> IPersistentState<_>).GetLastLogEntry () = Some entry
+                (uut :> IPersistentState<_>).GetLastLogEntry () = Some (truncate, entry)
                 && isPrefix (uut.GetLog ()) oldLog
                 && (uut :> IPersistentState<_>).CurrentLogIndex = truncate
 
