@@ -10,7 +10,7 @@ module TestServer =
 
     [<Test>]
     let foo () =
-        let cluster = InMemoryCluster.make<int> 5
+        let cluster = InMemoryCluster.make<int> true 5
 
         let logger, logs =
             let logs = ResizeArray ()
@@ -21,8 +21,6 @@ module TestServer =
 
             logLine, freezeLogs
 
-        let sendMessage = cluster.Servers.[0].OutboundMessageChannel
-
         // Candidate 1 asks server 0 to vote for it.
 
         {
@@ -32,7 +30,7 @@ module TestServer =
             CandidateLastLogEntry = 0<LogIndex>, 0<Term>
         }
         |> Message.RequestVote
-        |> sendMessage 0<ServerId>
+        |> cluster.SendMessage 0<ServerId>
 
         logs () |> shouldEqual [ "Received message for term 0" ]
 
@@ -45,7 +43,7 @@ module TestServer =
             CandidateLastLogEntry = 0<LogIndex>, 0<Term>
         }
         |> Message.RequestVote
-        |> sendMessage 0<ServerId>
+        |> cluster.SendMessage 0<ServerId>
 
         logs ()
         |> shouldEqual [ "Received message for term 0" ; "Received message for term 0" ]
@@ -61,6 +59,6 @@ module TestServer =
             CandidateLastLogEntry = 0<LogIndex>, 0<Term>
         }
         |> Message.RequestVote
-        |> sendMessage 0<ServerId>
+        |> cluster.SendMessage 0<ServerId>
 
         calls.Value |> shouldEqual 0
