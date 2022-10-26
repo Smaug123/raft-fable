@@ -42,7 +42,13 @@ type RequestVoteReply =
         /// Whether I am happy for you to become leader. (For example, if my term is greater than yours, then you're
         /// out of date and I won't vote for you.)
         VoteGranted : bool
+        /// The candidate I'm voting for or against.
+        Candidate : int<ServerId>
     }
+
+    override this.ToString () =
+        let decision = if this.VoteGranted then "in favour of" else "against"
+        sprintf "Server %i voting %s %i in term %i" this.Voter decision this.Candidate this.VoterTerm
 
 /// I am starting an election. Everyone, please vote.
 type RequestVoteMessage =
@@ -52,6 +58,9 @@ type RequestVoteMessage =
         CandidateLastLogEntry : int<LogIndex> * int<Term>
         ReplyChannel : RequestVoteReply -> unit
     }
+
+    override this.ToString () =
+        sprintf "Vote request: %i in term %i" this.CandidateId this.CandidateTerm
 
 /// I, a follower, acknowledge the leader's instruction to add an entry to my log.
 type AppendEntriesReply =
@@ -68,6 +77,9 @@ type LogEntry =
         Index : int<LogIndex>
         Term : int<Term>
     }
+
+    override this.ToString () =
+        sprintf "Log entry %i at subjective term %i" this.Index this.Term
 
 /// I am the leader. Followers, update your state as follows.
 type AppendEntriesMessage<'a> =
@@ -86,20 +98,48 @@ type AppendEntriesMessage<'a> =
         ReplyChannel : AppendEntriesReply -> unit
     }
 
+    override this.ToString () =
+        let description =
+            match this.NewEntry with
+            | None -> "Heartbeat"
+            | Some (entry, term) -> sprintf "Append %+A (term %i)" entry term
+
+        sprintf
+            "%s (leader %i at term %i whose commit index is %i)"
+            description
+            this.LeaderId
+            this.LeaderTerm
+            this.LeaderCommitIndex
+
 type Instruction<'a> =
     | AppendEntries of AppendEntriesMessage<'a>
     | RequestVote of RequestVoteMessage
+
+    override this.ToString () =
+        match this with
+        | RequestVote v -> v.ToString ()
+        | AppendEntries a -> a.ToString ()
 
     member this.Term =
         match this with
         | AppendEntries m -> m.LeaderTerm
         | RequestVote m -> m.CandidateTerm
 
-type Reply = RequestVoteReply of RequestVoteReply
+type Reply =
+    | RequestVoteReply of RequestVoteReply
+
+    override this.ToString () =
+        match this with
+        | RequestVoteReply v -> v.ToString ()
 
 type Message<'a> =
     | Instruction of Instruction<'a>
     | Reply of Reply
+
+    override this.ToString () =
+        match this with
+        | Instruction i -> i.ToString ()
+        | Reply r -> r.ToString ()
 
 type private CandidateState =
     {
@@ -220,6 +260,7 @@ type Server<'a>
                     Voter = me
                     VoterTerm = persistentState.CurrentTerm
                     VoteGranted = true
+                    Candidate = message.CandidateId
                 }
                 |> message.ReplyChannel
 
@@ -344,8 +385,6 @@ type Server<'a>
     let mailbox =
         let rec loop (mailbox : MailboxProcessor<_>) =
             async {
-                // TODO this should really wait for explicit Sync calls
-                // if we're running in memory, for determinism.
                 let! m = mailbox.Receive ()
                 //let toPrint = sprintf "Processing message in server %i: %+A" me m
                 //System.Console.WriteLine toPrint
@@ -360,6 +399,7 @@ type Server<'a>
                     // Start the election!
                     currentType <- ServerSpecialisation.Candidate (CandidateState.New clusterSize me)
                     persistentState.IncrementTerm ()
+                    persistentState.Vote me
 
                     for i in 0 .. clusterSize - 1 do
                         if i * 1<ServerId> <> me then
@@ -431,6 +471,12 @@ type Cluster<'a> =
             SendMessageDirectly : int<ServerId> -> Message<'a> -> unit
         }
 
+    member this.SendMessage (i : int<ServerId>) (m : Message<'a>) : unit = this.SendMessageDirectly i m
+
+    member this.Timeout (i : int<ServerId>) : unit =
+        this.Servers.[i / 1<ServerId>].TriggerTimeout ()
+        this.Servers.[i / 1<ServerId>].Sync ()
+
 type Network<'a> =
     internal
         {
@@ -438,6 +484,14 @@ type Network<'a> =
             /// server `i` and waiting for you to allow them through.
             InboundMessages : ResizeArray<Message<'a>>[]
         }
+
+    member this.AllInboundMessages (i : int<ServerId>) : Message<'a> list =
+        this.InboundMessages.[i / 1<ServerId>] |> List.ofSeq
+
+    member this.InboundMessage (i : int<ServerId>) (id : int) : Message<'a> =
+        this.InboundMessages.[i / 1<ServerId>].[id]
+
+    member this.Size = this.InboundMessages.Length
 
 [<RequireQualifiedAccess>]
 module InMemoryCluster =
