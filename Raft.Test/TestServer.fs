@@ -69,18 +69,23 @@ module TestServer =
 
         // We sent a message to every other server; process them.
         for i in 1..4 do
-            network.InboundMessages.[i].Count |> shouldEqual 1
-            let message = network.InboundMessages.[i].[0]
-            network.InboundMessages.[i].Clear ()
-            cluster.SendMessageDirectly (i * 1<ServerId>) message
+            let server = i * 1<ServerId>
+            (network.AllInboundMessages server).Length |> shouldEqual 1
+            let message = network.InboundMessage server 0
+            network.DropMessage server 0
+            cluster.SendMessageDirectly server message
 
-            network.InboundMessages.[0].Count |> shouldEqual i
+            (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual i
 
         for i in 1..4 do
-            cluster.SendMessageDirectly 0<ServerId> network.InboundMessages.[0].[i - 1]
+            network.InboundMessage 0<ServerId> (i - 1)
+            |> cluster.SendMessageDirectly 0<ServerId>
+
+            network.DropMessage 0<ServerId> (i - 1)
+
         // (the messages we've already processed)
-        network.InboundMessages.[0].Count |> shouldEqual 4
-        network.InboundMessages.[0].Clear ()
+        (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 4
+        (network.UndeliveredMessages 0<ServerId>).Length |> shouldEqual 0
 
         cluster.Servers.[0].State |> shouldEqual ServerStatus.Leader
 
@@ -159,22 +164,24 @@ module TestServer =
         cluster.Servers.[1].Sync ()
 
         // Those two each sent a message to every other server.
-        network.InboundMessages.[0].Count |> shouldEqual 1
-        network.InboundMessages.[1].Count |> shouldEqual 1
+        (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 1
+        (network.AllInboundMessages 1<ServerId>).Length |> shouldEqual 1
 
         for i in 2..4 do
-            network.InboundMessages.[i].Count |> shouldEqual 2
+            let server = i * 1<ServerId>
+            (network.AllInboundMessages server).Length |> shouldEqual 2
 
-        while network.InboundMessages |> Seq.concat |> Seq.isEmpty |> not do
+        while network.AllUndeliveredMessages () |> Seq.concat |> Seq.isEmpty |> not do
             let allOrderings' =
-                network.InboundMessages |> List.ofArray |> List.map List.ofSeq |> allOrderings
+                network.AllUndeliveredMessages () |> List.map List.ofSeq |> allOrderings
 
-            network.InboundMessages |> Array.iter (fun arr -> arr.Clear ())
             // Process the messages!
             let ordering = randomChoice rand allOrderings'
 
-            for serverConsuming, message in ordering do
-                cluster.SendMessageDirectly (serverConsuming * 1<ServerId>) message
+            for serverConsuming, (messageId, message) in ordering do
+                let serverConsuming = serverConsuming * 1<ServerId>
+                cluster.SendMessageDirectly serverConsuming message
+                network.DropMessage serverConsuming messageId
 
         (cluster.Servers.[0].State = Leader && cluster.Servers.[1].State = Leader)
         |> shouldEqual false
@@ -202,9 +209,9 @@ module TestServer =
 
     let apply (History history) (cluster : Cluster<'a>) (network : Network<'a>) : unit =
         for pile, entry in history do
-            let messages = network.InboundMessages.[pile / 1<ServerId>]
+            let messages = network.AllInboundMessages pile
 
-            if entry < messages.Count then
+            if entry < messages.Length then
                 cluster.SendMessageDirectly pile messages.[entry]
 
     [<Test>]
@@ -217,11 +224,11 @@ module TestServer =
         cluster.Servers.[1].Sync ()
 
         // Those two each sent a message to every other server.
-        network.InboundMessages.[0].Count |> shouldEqual 1
-        network.InboundMessages.[1].Count |> shouldEqual 1
+        (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 1
+        (network.AllInboundMessages 1<ServerId>).Length |> shouldEqual 1
 
         for i in 2..4 do
-            network.InboundMessages.[i].Count |> shouldEqual 2
+            (network.AllInboundMessages (i * 1<ServerId>)).Length |> shouldEqual 2
 
         let property (history : History) =
             apply history cluster network

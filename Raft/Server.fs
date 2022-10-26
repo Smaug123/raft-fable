@@ -1,5 +1,7 @@
 ﻿namespace Raft
 
+open System.Collections.Generic
+
 /// Server state which need not survive a server crash.
 type VolatileState =
     {
@@ -480,18 +482,37 @@ type Cluster<'a> =
 type Network<'a> =
     internal
         {
-            /// InboundMessages.[i] is the collection of messages sent to
-            /// server `i` and waiting for you to allow them through.
-            InboundMessages : ResizeArray<Message<'a>>[]
+            /// CompleteMessageHistory.[i] is the collection of all messages
+            /// ever sent to server `i`.
+            CompleteMessageHistory : ResizeArray<Message<'a>>[]
+            MessagesDelivered : HashSet<int>[]
+        }
+
+    static member Make (clusterSize : int) =
+        {
+            CompleteMessageHistory = Array.init clusterSize (fun _ -> ResizeArray ())
+            MessagesDelivered = Array.init clusterSize (fun _ -> HashSet ())
         }
 
     member this.AllInboundMessages (i : int<ServerId>) : Message<'a> list =
-        this.InboundMessages.[i / 1<ServerId>] |> List.ofSeq
+        this.CompleteMessageHistory.[i / 1<ServerId>] |> List.ofSeq
 
     member this.InboundMessage (i : int<ServerId>) (id : int) : Message<'a> =
-        this.InboundMessages.[i / 1<ServerId>].[id]
+        this.CompleteMessageHistory.[i / 1<ServerId>].[id]
 
-    member this.Size = this.InboundMessages.Length
+    member this.DropMessage (i : int<ServerId>) (id : int) =
+        this.MessagesDelivered.[i / 1<ServerId>].Add id |> ignore
+
+    member this.UndeliveredMessages (i : int<ServerId>) : (int * Message<'a>) list =
+        this.CompleteMessageHistory.[i / 1<ServerId>]
+        |> Seq.indexed
+        |> Seq.filter (fun (count, _) -> this.MessagesDelivered.[i / 1<ServerId>].Contains count |> not)
+        |> List.ofSeq
+
+    member this.AllUndeliveredMessages () : ((int * Message<'a>) list) list =
+        List.init this.CompleteMessageHistory.Length (fun i -> this.UndeliveredMessages (i * 1<ServerId>))
+
+    member this.ClusterSize = this.CompleteMessageHistory.Length
 
 [<RequireQualifiedAccess>]
 module InMemoryCluster =
@@ -500,15 +521,10 @@ module InMemoryCluster =
     let make<'a> (count : int) : Cluster<'a> * Network<'a> =
         let servers = Array.zeroCreate<Server<'a>> count
 
-        let network =
-            {
-                InboundMessages =
-                    fun _ -> ResizeArray<Message<'a>> ()
-                    |> Array.init count
-            }
+        let network = Network<int>.Make count
 
         let messageChannelHold (serverId : int<ServerId>) (message : Message<'a>) : unit =
-            let arr = network.InboundMessages.[serverId / 1<ServerId>]
+            let arr = network.CompleteMessageHistory.[serverId / 1<ServerId>]
             lock arr (fun () -> arr.Add message)
 
         for s in 0 .. servers.Length - 1 do
