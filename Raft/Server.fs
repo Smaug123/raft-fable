@@ -86,7 +86,7 @@ type AppendEntriesMessage<'a> =
         ReplyChannel : AppendEntriesReply -> unit
     }
 
-type Message<'a> =
+type Instruction<'a> =
     | AppendEntries of AppendEntriesMessage<'a>
     | RequestVote of RequestVoteMessage
 
@@ -94,6 +94,12 @@ type Message<'a> =
         match this with
         | AppendEntries m -> m.LeaderTerm
         | RequestVote m -> m.CandidateTerm
+
+type Reply = RequestVoteReply of RequestVoteReply
+
+type Message<'a> =
+    | Instruction of Instruction<'a>
+    | Reply of Reply
 
 type private CandidateState =
     {
@@ -123,7 +129,6 @@ type ServerStatus =
 type private ServerAction<'a> =
     | BeginElection
     | Receive of Message<'a>
-    | ReceiveReply of RequestVoteReply
     | Sync of AsyncReplyChannel<unit>
 
 type Server<'a>
@@ -133,11 +138,11 @@ type Server<'a>
         persistentState : IPersistentState<'a>,
         messageChannel : int<ServerId> -> Message<'a> -> unit
     )
-     as this=
+    =
     let mutable volatileState = VolatileState.New
     let mutable currentType = ServerSpecialisation.Follower
 
-    let processMessage (message : Message<'a>) : unit =
+    let processMessage (message : Instruction<'a>) : unit =
         // First, see if this message comes from a future term.
         // (This is `UpdateTerm` from the TLA+.)
         if message.Term > persistentState.CurrentTerm then
@@ -342,8 +347,8 @@ type Server<'a>
                 // TODO this should really wait for explicit Sync calls
                 // if we're running in memory, for determinism.
                 let! m = mailbox.Receive ()
-                let toPrint = sprintf "Processing message in server %i: %+A" me m
-                System.Console.WriteLine toPrint
+                //let toPrint = sprintf "Processing message in server %i: %+A" me m
+                //System.Console.WriteLine toPrint
 
                 match m with
                 | ServerAction.BeginElection ->
@@ -367,13 +372,16 @@ type Server<'a>
                                     | None ->
                                         // TODO this is almost certainly not right
                                         (0<LogIndex>, 0<Term>)
-                                ReplyChannel = fun reply -> mailbox.Post (ReceiveReply reply)
+                                ReplyChannel =
+                                    // TODO this is bypassing the network - stop it!
+                                    fun reply -> messageChannel me (RequestVoteReply reply |> Message.Reply)
                             }
-                            |> Message.RequestVote
+                            |> Instruction.RequestVote
+                            |> Message.Instruction
                             |> messageChannel (i * 1<ServerId>)
-                | ServerAction.Receive m -> return processMessage m
+                | ServerAction.Receive (Instruction m) -> return processMessage m
                 | ServerAction.Sync reply -> reply.Reply ()
-                | ServerAction.ReceiveReply requestVoteReply ->
+                | ServerAction.Receive (Reply (RequestVoteReply requestVoteReply)) ->
                     match currentType with
                     | ServerSpecialisation.Leader _
                     | ServerSpecialisation.Follower ->
@@ -416,42 +424,49 @@ type Server<'a>
         | ServerSpecialisation.Candidate _ -> ServerStatus.Candidate
         | ServerSpecialisation.Follower -> ServerStatus.Follower
 
-// {
-//     ClusterSize : int
-//     mutable VolatileState : VolatileState
-//     PersistentState : IPersistentState<'a>
-//     mutable Type : ServerSpecialisation
-//     TriggerTimeout : unit -> unit
-//     Mailbox : MailboxProcessor<ServerAction<'a>>
-// }
-
 type Cluster<'a> =
     internal
         {
             Servers : Server<'a> array
-            SendMessage : int<ServerId> -> Message<'a> -> unit
+            SendMessageDirectly : int<ServerId> -> Message<'a> -> unit
+        }
+
+type Network<'a> =
+    internal
+        {
+            /// InboundMessages.[i] is the collection of messages sent to
+            /// server `i` and waiting for you to allow them through.
+            InboundMessages : ResizeArray<Message<'a>>[]
         }
 
 [<RequireQualifiedAccess>]
 module InMemoryCluster =
 
     [<RequiresExplicitTypeArguments>]
-    let make<'a> (immediateFlush : bool) (count : int) : Cluster<'a> =
+    let make<'a> (count : int) : Cluster<'a> * Network<'a> =
         let servers = Array.zeroCreate<Server<'a>> count
 
-        let messageChannel (serverId : int<ServerId>) (message : Message<'a>) : unit =
-            servers.[serverId / 1<ServerId>].Message message
+        let network =
+            {
+                InboundMessages =
+                    fun _ -> ResizeArray<Message<'a>> ()
+                    |> Array.init count
+            }
+
+        let messageChannelHold (serverId : int<ServerId>) (message : Message<'a>) : unit =
+            let arr = network.InboundMessages.[serverId / 1<ServerId>]
+            lock arr (fun () -> arr.Add message)
 
         for s in 0 .. servers.Length - 1 do
-            servers.[s] <- Server (count, s * 1<ServerId>, InMemoryPersistentState (), messageChannel)
+            servers.[s] <- Server (count, s * 1<ServerId>, InMemoryPersistentState (), messageChannelHold)
 
-        {
-            Servers = servers
-            SendMessage =
-                if immediateFlush then
+        let cluster =
+            {
+                Servers = servers
+                SendMessageDirectly =
                     fun i m ->
                         servers.[i / 1<ServerId>].Message m
                         servers.[i / 1<ServerId>].Sync ()
-                else
-                    fun i -> servers.[i / 1<ServerId>].Message
-        }
+            }
+
+        cluster, network

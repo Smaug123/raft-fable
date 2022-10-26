@@ -1,14 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net6.0</TargetFramework>
+      <TargetFramework>net6.0</TargetFramework>
+      <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="AssemblyInfo.fs" />
-        <Compile Include="Measures.fs" />
-        <Compile Include="PersistentState.fs" />
-        <Compile Include="Server.fs" />
+      <Compile Include="AssemblyInfo.fs" />
+      <Compile Include="Measures.fs" />
+      <Compile Include="PersistentState.fs" />
+      <Compile Include="Server.fs" />
     </ItemGroup>
 
 </Project>
