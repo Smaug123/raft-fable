@@ -87,7 +87,7 @@ module TestServer =
         (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 4
         (network.UndeliveredMessages 0<ServerId>).Length |> shouldEqual 0
 
-        cluster.Servers.[0].State |> shouldEqual ServerStatus.Leader
+        cluster.Servers.[0].State |> shouldEqual (ServerStatus.Leader 1<Term>)
 
         for i in 1..4 do
             cluster.Servers.[i].State |> shouldEqual ServerStatus.Follower
@@ -183,15 +183,12 @@ module TestServer =
                 cluster.SendMessageDirectly serverConsuming message
                 network.DropMessage serverConsuming messageId
 
-        (cluster.Servers.[0].State = Leader && cluster.Servers.[1].State = Leader)
-        |> shouldEqual false
-
-        (cluster.Servers.[0].State = Candidate && cluster.Servers.[1].State = Candidate)
-        |> shouldEqual false
-
-        ((cluster.Servers.[0].State = Leader && cluster.Servers.[1].State = Candidate)
-         || (cluster.Servers.[1].State = Leader && cluster.Servers.[0].State = Candidate))
-        |> shouldEqual true
+        match cluster.Servers.[0].State, cluster.Servers.[1].State with
+        | Leader _, Leader _ -> failwith "Unexpectedly had two leaders"
+        | Candidate _, Candidate _ -> failwith "Unexpectedly failed to elect a leader"
+        | Leader 1<Term>, Candidate 1<Term>
+        | Candidate 1<Term>, Leader 1<Term> -> ()
+        | s1, s2 -> failwithf "Unexpected state: %O %O" s1 s2
 
         for i in 2..4 do
             cluster.Servers.[i].State |> shouldEqual ServerStatus.Follower
@@ -233,8 +230,9 @@ module TestServer =
         let property (history : History) =
             apply history cluster network
 
-            (cluster.Servers.[0].State = Leader && cluster.Servers.[1].State = Leader)
-            |> shouldEqual false
+            match cluster.Servers.[0].State, cluster.Servers.[1].State with
+            | Leader _, Leader _ -> failwith "Unexpectedly elected two leaders"
+            | _, _ -> ()
 
             for i in 2..4 do
                 cluster.Servers.[i].State |> shouldEqual ServerStatus.Follower

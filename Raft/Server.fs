@@ -1,7 +1,5 @@
 ﻿namespace Raft
 
-open System.Collections.Generic
-
 /// Server state which need not survive a server crash.
 type VolatileState =
     {
@@ -471,82 +469,3 @@ type Server<'a>
         | ServerSpecialisation.Leader _ -> ServerStatus.Leader persistentState.CurrentTerm
         | ServerSpecialisation.Candidate _ -> ServerStatus.Candidate persistentState.CurrentTerm
         | ServerSpecialisation.Follower -> ServerStatus.Follower
-
-type Cluster<'a> =
-    internal
-        {
-            Servers : Server<'a> array
-            SendMessageDirectly : int<ServerId> -> Message<'a> -> unit
-        }
-
-    member this.SendMessage (i : int<ServerId>) (m : Message<'a>) : unit = this.SendMessageDirectly i m
-
-    member this.Timeout (i : int<ServerId>) : unit =
-        this.Servers.[i / 1<ServerId>].TriggerTimeout ()
-        this.Servers.[i / 1<ServerId>].Sync ()
-
-    member this.State (i : int<ServerId>) : ServerStatus = this.Servers.[i / 1<ServerId>].State
-
-    member this.ClusterSize : int = this.Servers.Length
-
-type Network<'a> =
-    internal
-        {
-            /// CompleteMessageHistory.[i] is the collection of all messages
-            /// ever sent to server `i`.
-            CompleteMessageHistory : ResizeArray<Message<'a>>[]
-            MessagesDelivered : HashSet<int>[]
-        }
-
-    static member Make (clusterSize : int) =
-        {
-            CompleteMessageHistory = Array.init clusterSize (fun _ -> ResizeArray ())
-            MessagesDelivered = Array.init clusterSize (fun _ -> HashSet ())
-        }
-
-    member this.AllInboundMessages (i : int<ServerId>) : Message<'a> list =
-        this.CompleteMessageHistory.[i / 1<ServerId>] |> List.ofSeq
-
-    member this.InboundMessage (i : int<ServerId>) (id : int) : Message<'a> =
-        this.CompleteMessageHistory.[i / 1<ServerId>].[id]
-
-    member this.DropMessage (i : int<ServerId>) (id : int) =
-        this.MessagesDelivered.[i / 1<ServerId>].Add id |> ignore
-
-    member this.UndeliveredMessages (i : int<ServerId>) : (int * Message<'a>) list =
-        this.CompleteMessageHistory.[i / 1<ServerId>]
-        |> Seq.indexed
-        |> Seq.filter (fun (count, _) -> this.MessagesDelivered.[i / 1<ServerId>].Contains count |> not)
-        |> List.ofSeq
-
-    member this.AllUndeliveredMessages () : ((int * Message<'a>) list) list =
-        List.init this.CompleteMessageHistory.Length (fun i -> this.UndeliveredMessages (i * 1<ServerId>))
-
-    member this.ClusterSize = this.CompleteMessageHistory.Length
-
-[<RequireQualifiedAccess>]
-module InMemoryCluster =
-
-    [<RequiresExplicitTypeArguments>]
-    let make<'a> (count : int) : Cluster<'a> * Network<'a> =
-        let servers = Array.zeroCreate<Server<'a>> count
-
-        let network = Network<int>.Make count
-
-        let messageChannelHold (serverId : int<ServerId>) (message : Message<'a>) : unit =
-            let arr = network.CompleteMessageHistory.[serverId / 1<ServerId>]
-            lock arr (fun () -> arr.Add message)
-
-        for s in 0 .. servers.Length - 1 do
-            servers.[s] <- Server (count, s * 1<ServerId>, InMemoryPersistentState (), messageChannelHold)
-
-        let cluster =
-            {
-                Servers = servers
-                SendMessageDirectly =
-                    fun i m ->
-                        servers.[i / 1<ServerId>].Message m
-                        servers.[i / 1<ServerId>].Sync ()
-            }
-
-        cluster, network

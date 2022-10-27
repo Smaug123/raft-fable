@@ -10,6 +10,7 @@
       <Compile Include="Measures.fs" />
       <Compile Include="PersistentState.fs" />
       <Compile Include="Server.fs" />
+      <Compile Include="InMemory.fs" />
     </ItemGroup>
 
 </Project>
