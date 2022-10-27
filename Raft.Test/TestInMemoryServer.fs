@@ -64,24 +64,22 @@ module TestInMemoryServer =
     let ``Startup sequence in prod, only one timeout takes place`` () =
         let cluster, network = InMemoryCluster.make<int> 5
 
-        cluster.Servers.[0].TriggerInactivityTimeout ()
-        cluster.Servers.[0].Sync ()
+        NetworkAction.InactivityTimeout 0<ServerId>
+        |> NetworkAction.perform cluster network
 
         // We sent a message to every other server; process them.
         for i in 1..4 do
             let server = i * 1<ServerId>
             (network.AllInboundMessages server).Length |> shouldEqual 1
-            let message = network.InboundMessage server 0
-            network.DropMessage server 0
-            cluster.SendMessageDirectly server message
+
+            NetworkAction.NetworkMessage (server, 0)
+            |> NetworkAction.perform cluster network
 
             (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual i
 
         for i in 1..4 do
-            network.InboundMessage 0<ServerId> (i - 1)
-            |> cluster.SendMessageDirectly 0<ServerId>
-
-            network.DropMessage 0<ServerId> (i - 1)
+            NetworkAction.NetworkMessage (0<ServerId>, (i - 1))
+            |> NetworkAction.perform cluster network
 
         // (the messages we've already processed)
         (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 4
@@ -158,10 +156,11 @@ module TestInMemoryServer =
         let rand = System.Random ()
         let cluster, network = InMemoryCluster.make<int> 5
 
-        cluster.Servers.[0].TriggerInactivityTimeout ()
-        cluster.Servers.[0].Sync ()
-        cluster.Servers.[1].TriggerInactivityTimeout ()
-        cluster.Servers.[1].Sync ()
+        NetworkAction.InactivityTimeout 0<ServerId>
+        |> NetworkAction.perform cluster network
+
+        NetworkAction.InactivityTimeout 1<ServerId>
+        |> NetworkAction.perform cluster network
 
         // Those two each sent a message to every other server.
         (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 1
@@ -186,8 +185,8 @@ module TestInMemoryServer =
         match cluster.Servers.[0].State, cluster.Servers.[1].State with
         | Leader _, Leader _ -> failwith "Unexpectedly had two leaders"
         | Candidate _, Candidate _ -> failwith "Unexpectedly failed to elect a leader"
-        | Leader 1<Term>, Candidate 1<Term>
-        | Candidate 1<Term>, Leader 1<Term> -> ()
+        | Leader 1<Term>, Follower
+        | Follower, Leader 1<Term> -> ()
         | s1, s2 -> failwithf "Unexpected state: %O %O" s1 s2
 
         for i in 2..4 do
@@ -215,10 +214,11 @@ module TestInMemoryServer =
     let ``Startup sequence in prod, two timeouts at once, property-based: at most one leader is elected`` () =
         let cluster, network = InMemoryCluster.make<int> 5
 
-        cluster.Servers.[0].TriggerInactivityTimeout ()
-        cluster.Servers.[0].Sync ()
-        cluster.Servers.[1].TriggerInactivityTimeout ()
-        cluster.Servers.[1].Sync ()
+        NetworkAction.InactivityTimeout 0<ServerId>
+        |> NetworkAction.perform cluster network
+
+        NetworkAction.InactivityTimeout 1<ServerId>
+        |> NetworkAction.perform cluster network
 
         // Those two each sent a message to every other server.
         (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 1

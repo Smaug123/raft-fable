@@ -430,6 +430,26 @@ type Server<'a>
     let divideByTwoRoundingUp (n : int) =
         if n % 2 = 0 then n / 2 else (n / 2) + 1
 
+    let emitHeartbeat () =
+        match currentType with
+        | ServerSpecialisation.Candidate _
+        | ServerSpecialisation.Follower -> ()
+        | ServerSpecialisation.Leader _ ->
+            for i in 0 .. clusterSize - 1 do
+                if i * 1<ServerId> <> me then
+                    {
+                        LeaderTerm = persistentState.CurrentTerm
+                        LeaderId = me
+                        PrevLogEntry = persistentState.GetLastLogEntry () |> Option.map snd
+                        NewEntry = None
+                        LeaderCommitIndex = volatileState.CommitIndex
+                        ReplyChannel =
+                            fun reply -> messageChannel me (reply |> Reply.AppendEntriesReply |> Message.Reply)
+                    }
+                    |> Instruction.AppendEntries
+                    |> Message.Instruction
+                    |> messageChannel (i * 1<ServerId>)
+
     let processReply (r : Reply) : unit =
         match r with
         | AppendEntriesReply appendEntriesReply ->
@@ -492,6 +512,7 @@ type Server<'a>
                         LeaderState.New clusterSize persistentState.CurrentLogIndex
                         |> ServerSpecialisation.Leader
 
+                    emitHeartbeat ()
 
     let mailbox =
         let rec loop (mailbox : MailboxProcessor<_>) =
@@ -501,26 +522,7 @@ type Server<'a>
                 //System.Console.WriteLine toPrint
 
                 match m with
-                | ServerAction.EmitHeartbeat ->
-                    match currentType with
-                    | ServerSpecialisation.Candidate _
-                    | ServerSpecialisation.Follower -> ()
-                    | ServerSpecialisation.Leader _ ->
-                        for i in 0 .. clusterSize - 1 do
-                            if i * 1<ServerId> <> me then
-                                {
-                                    LeaderTerm = persistentState.CurrentTerm
-                                    LeaderId = me
-                                    PrevLogEntry = persistentState.GetLastLogEntry () |> Option.map snd
-                                    NewEntry = None
-                                    LeaderCommitIndex = volatileState.CommitIndex
-                                    ReplyChannel =
-                                        fun reply ->
-                                            messageChannel me (reply |> Reply.AppendEntriesReply |> Message.Reply)
-                                }
-                                |> Instruction.AppendEntries
-                                |> Message.Instruction
-                                |> messageChannel (i * 1<ServerId>)
+                | ServerAction.EmitHeartbeat -> emitHeartbeat ()
                 | ServerAction.BeginElection ->
                     match currentType with
                     | ServerSpecialisation.Leader _ -> ()
