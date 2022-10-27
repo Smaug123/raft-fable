@@ -8,8 +8,9 @@
 
     <ItemGroup>
         <Compile Include="Logger.fs" />
-        <Compile Include="TestServer.fs" />
+        <Compile Include="TestInMemoryServer.fs" />
         <Compile Include="TestInMemoryPersistentState.fs" />
+        <Compile Include="TestServer.fs" />
     </ItemGroup>
 
     <ItemGroup>

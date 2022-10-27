@@ -14,7 +14,7 @@ type IPersistentState<'a> =
     abstract TruncateLog : int<LogIndex> -> unit
     abstract GetLogEntry : int<LogIndex> -> ('a * int<Term>) option
     abstract CurrentLogIndex : int<LogIndex>
-    abstract GetLastLogEntry : unit -> (int<LogIndex> * ('a * int<Term>)) option
+    abstract GetLastLogEntry : unit -> ('a * LogEntry) option
     abstract AdvanceToTerm : int<Term> -> unit
     abstract IncrementTerm : unit -> unit
     abstract Vote : int<ServerId> -> unit
@@ -50,11 +50,19 @@ type InMemoryPersistentState<'a> () =
                 let position = if position < 0 then 0 else position
                 log.RemoveRange (position, log.Count - position)
 
-        member this.GetLastLogEntry () =
+        member this.GetLastLogEntry () : ('a * LogEntry) option =
             if log.Count = 0 then
                 None
             else
-                Some (log.Count * 1<LogIndex>, log.[log.Count - 1])
+                let stored, term = log.[log.Count - 1]
+
+                Some (
+                    stored,
+                    {
+                        Index = log.Count * 1<LogIndex>
+                        Term = term
+                    }
+                )
 
         member this.GetLogEntry position =
             let position = position / 1<LogIndex>

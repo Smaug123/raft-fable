@@ -11,8 +11,12 @@ type Cluster<'a> =
 
     member this.SendMessage (i : int<ServerId>) (m : Message<'a>) : unit = this.SendMessageDirectly i m
 
-    member this.Timeout (i : int<ServerId>) : unit =
-        this.Servers.[i / 1<ServerId>].TriggerTimeout ()
+    member this.InactivityTimeout (i : int<ServerId>) : unit =
+        this.Servers.[i / 1<ServerId>].TriggerInactivityTimeout ()
+        this.Servers.[i / 1<ServerId>].Sync ()
+
+    member this.HeartbeatTimeout (i : int<ServerId>) : unit =
+        this.Servers.[i / 1<ServerId>].TriggerHeartbeatTimeout ()
         this.Servers.[i / 1<ServerId>].Sync ()
 
     member this.State (i : int<ServerId>) : ServerStatus = this.Servers.[i / 1<ServerId>].State
