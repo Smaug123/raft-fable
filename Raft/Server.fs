@@ -164,9 +164,15 @@ type private ServerSpecialisation =
     | Candidate of CandidateState
 
 type ServerStatus =
-    | Leader
+    | Leader of int<Term>
     | Follower
-    | Candidate
+    | Candidate of int<Term>
+
+    override this.ToString () =
+        match this with
+        | Leader term -> sprintf "Leader in term %i" term
+        | Candidate term -> sprintf "Candidate in term %i" term
+        | Follower -> "Follower"
 
 type private ServerAction<'a> =
     | BeginElection
@@ -462,8 +468,8 @@ type Server<'a>
 
     member this.State =
         match currentType with
-        | ServerSpecialisation.Leader _ -> ServerStatus.Leader
-        | ServerSpecialisation.Candidate _ -> ServerStatus.Candidate
+        | ServerSpecialisation.Leader _ -> ServerStatus.Leader persistentState.CurrentTerm
+        | ServerSpecialisation.Candidate _ -> ServerStatus.Candidate persistentState.CurrentTerm
         | ServerSpecialisation.Follower -> ServerStatus.Follower
 
 type Cluster<'a> =
@@ -478,6 +484,10 @@ type Cluster<'a> =
     member this.Timeout (i : int<ServerId>) : unit =
         this.Servers.[i / 1<ServerId>].TriggerTimeout ()
         this.Servers.[i / 1<ServerId>].Sync ()
+
+    member this.State (i : int<ServerId>) : ServerStatus = this.Servers.[i / 1<ServerId>].State
+
+    member this.ClusterSize : int = this.Servers.Length
 
 type Network<'a> =
     internal

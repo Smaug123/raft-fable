@@ -16,6 +16,10 @@ module Program =
         if not wroteAnything then
             printfn "<No messages in network>"
 
+    let printClusterState<'a> (cluster : Cluster<'a>) : unit =
+        for i in 0 .. cluster.ClusterSize - 1 do
+            printfn "Server %i: %O" i (cluster.State (i * 1<ServerId>))
+
     let getMessage (clusterSize : int) (s : string) : (int<ServerId> * int) option =
         match s.Split ',' with
         | [| serverId ; messageId |] ->
@@ -59,7 +63,13 @@ module Program =
 
     let rec getAction (clusterSize : int) =
         printf "Enter action. Trigger [t]imeout <server id>, or allow [m]essage <server id, message id>: "
-        let s = Console.ReadLine().ToUpperInvariant ()
+
+        let s =
+            let rec go () =
+                let s = Console.ReadLine().ToUpperInvariant ()
+                if String.IsNullOrEmpty s then go () else s
+
+            go ()
 
         match s.[0] with
         | 'T' ->
@@ -81,6 +91,7 @@ module Program =
 
         while true do
             printNetworkState network
+            printClusterState cluster
 
             let action = getAction clusterSize
 
