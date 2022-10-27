@@ -16,7 +16,7 @@ jobs:
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v1
       with:
-        dotnet-version: 6.0.400
+        dotnet-version: 6.0.100
     - name: Install dependencies
       run: dotnet restore Raft.sln
     - name: Build
@@ -26,4 +26,4 @@ jobs:
     - name: Install Fantomas
       run: dotnet tool restore
     - name: Run Fantomas
-      run: ./hooks/pre-push
+      run: dotnet tool run fantomas --check -r .
