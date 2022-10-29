@@ -5,21 +5,31 @@
       inputs.nixpkgs.follows = "nixpkgs";
       url = "github:kamadorueda/alejandra/3.0.0";
     };
+    flake-utils = {
+      url = "github:numtide/flake-utils";
+    };
   };
 
   outputs = inputs @ {
     self,
     nixpkgs,
     alejandra,
+    flake-utils,
     ...
-  }: {
-    devShell.aarch64-darwin = let
-      system = "aarch64-darwin";
-    in let
-      pkgs = nixpkgs.legacyPackages.aarch64-darwin;
-    in
-      pkgs.mkShell {
-        buildInputs = [alejandra.defaultPackage.aarch64-darwin pkgs.nodejs-14_x pkgs.dotnet-sdk_6 pkgs.darwin.apple_sdk.frameworks.CoreServices];
-      };
-  };
+  }:
+    flake-utils.lib.eachDefaultSystem (
+      system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in {
+        devShell = pkgs.mkShell {
+          buildInputs =
+            [alejandra.defaultPackage.${system} pkgs.nodejs-14_x pkgs.dotnet-sdk_6]
+            ++ (
+              if pkgs.stdenv.isDarwin
+              then [pkgs.darwin.apple_sdk.frameworks.CoreServices]
+              else []
+            );
+        };
+      }
+    );
 }
