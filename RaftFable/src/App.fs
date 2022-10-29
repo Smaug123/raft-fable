@@ -23,8 +23,8 @@ do
 
     serverHeading.textContent <- "Server"
     statusHeading.textContent <- "Status"
-    row.appendChild (serverHeading) |> ignore
-    row.appendChild (statusHeading) |> ignore
+    row.appendChild serverHeading |> ignore
+    row.appendChild statusHeading |> ignore
     serverStatuses.appendChild row |> ignore
 
 let serverStatusNodes =
@@ -33,8 +33,8 @@ let serverStatusNodes =
         let child = document.createElement "td" :?> Browser.Types.HTMLTableCellElement
         let statusCell = document.createElement "td" :?> Browser.Types.HTMLTableCellElement
         child.textContent <- sprintf "%i" i
-        node.appendChild (child) |> ignore
-        node.appendChild (statusCell) |> ignore
+        node.appendChild child |> ignore
+        node.appendChild statusCell |> ignore
         serverStatuses.appendChild node |> ignore
         statusCell
     |> List.init clusterSize
@@ -51,7 +51,7 @@ let resetButtonArea () =
     for i in 0 .. clusterSize - 1 do
         let heading = document.createElement "th" :?> Browser.Types.HTMLTableCellElement
         heading.innerText <- sprintf "Server %i" i
-        headerRow.appendChild (heading) |> ignore
+        headerRow.appendChild heading |> ignore
 
     messageQueueArea.appendChild headerRow |> ignore
 
@@ -67,7 +67,7 @@ let printClusterState<'a> (cluster : Cluster<'a>) : unit =
     for i in 0 .. cluster.ClusterSize - 1 do
         serverStatusNodes.[i].textContent <- cluster.State (i * 1<ServerId>) |> string<ServerStatus>
 
-let cluster, network = InMemoryCluster.make<int> clusterSize
+let cluster, network = InMemoryCluster.make<string> clusterSize
 
 let performWithoutPrintingNetworkState action =
     NetworkAction.perform cluster network action
@@ -156,42 +156,8 @@ let rec getHeartbeater (clusterSize : int) (serverId : string) =
         printf "Unrecognised input. "
         None
 
-(*
-let rec getAction (clusterSize : int) =
-    printf
-        "Enter action. Trigger [t]imeout <server id>, [h]eartbeat a leader <server id>, [d]rop message <server id, message id>, or allow [m]essage <server id, message id>: "
-
-    let s =
-        let rec go () =
-            let s = Console.ReadLine().ToUpperInvariant ()
-            if String.IsNullOrEmpty s then go () else s
-
-        go ()
-
-    match s.[0] with
-    | 'T' ->
-        match getTimeout clusterSize s.[1..] with
-        | Some t -> t |> InactivityTimeout
-        | None -> getAction clusterSize
-    | 'D' ->
-        match getMessage clusterSize s.[1..] with
-        | Some m -> m |> DropMessage
-        | None -> getAction clusterSize
-    | 'M' ->
-        match getMessage clusterSize s.[1..] with
-        | Some m -> m |> NetworkMessage
-        | None -> getAction clusterSize
-    | 'H' ->
-        match getHeartbeater clusterSize s.[1..] with
-        | Some h -> Heartbeat h
-        | None -> getAction clusterSize
-    | _ ->
-        printf "Unrecognised input. "
-        getAction clusterSize
-*)
-
 let startupText =
-    document.querySelector (".startup-text") :?> Browser.Types.HTMLParagraphElement
+    document.querySelector ".startup-text" :?> Browser.Types.HTMLParagraphElement
 
 startupText.textContent <- "Starting up..."
 
@@ -231,16 +197,16 @@ let startupSequence =
     |> fun p -> p.``then`` (fun () -> startupText.textContent <- "Started! Press buttons.")
 
 let timeoutButton =
-    document.querySelector (".timeout-button") :?> Browser.Types.HTMLButtonElement
+    document.querySelector ".timeout-button" :?> Browser.Types.HTMLButtonElement
 
 let timeoutField =
-    document.querySelector (".timeout-text") :?> Browser.Types.HTMLInputElement
+    document.querySelector ".timeout-text" :?> Browser.Types.HTMLInputElement
 
 timeoutField.max <- string<int> (clusterSize - 1)
 timeoutField.min <- "0"
 
 timeoutButton.onclick <-
-    fun evt ->
+    fun _event ->
         startupSequence.``then`` (fun () ->
             timeoutField.valueAsNumber
             |> int
@@ -252,16 +218,16 @@ timeoutButton.onclick <-
         )
 
 let heartbeatButton =
-    document.querySelector (".heartbeat-button") :?> Browser.Types.HTMLButtonElement
+    document.querySelector ".heartbeat-button" :?> Browser.Types.HTMLButtonElement
 
 let heartbeatField =
-    document.querySelector (".heartbeat-text") :?> Browser.Types.HTMLInputElement
+    document.querySelector ".heartbeat-text" :?> Browser.Types.HTMLInputElement
 
 heartbeatField.max <- string<int> (clusterSize - 1)
 heartbeatField.min <- "0"
 
 heartbeatButton.onclick <-
-    fun evt ->
+    fun _event ->
         startupSequence.``then`` (fun () ->
             heartbeatField.valueAsNumber
             |> int
@@ -271,16 +237,3 @@ heartbeatButton.onclick <-
 
             printNetworkState network
         )
-
-
-//let electLeader =
-//    [
-//        NetworkAction.InactivityTimeout 0<ServerId>
-//        NetworkAction.NetworkMessage (1<ServerId>, 0)
-//        NetworkAction.NetworkMessage (2<ServerId>, 0)
-//        NetworkAction.DropMessage (3<ServerId>, 0)
-//        NetworkAction.DropMessage (4<ServerId>, 0)
-//        NetworkAction.NetworkMessage (0<ServerId>, 0)
-//        NetworkAction.NetworkMessage (0<ServerId>, 1)
-//    // At this point, server 0 is leader in an uncontested election.
-//    ]

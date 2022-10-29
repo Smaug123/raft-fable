@@ -240,3 +240,80 @@ module TestInMemoryServer =
         property
         |> Prop.forAll (Arb.fromGen (historyGen 5))
         |> Check.QuickThrowOnFailure
+
+    [<Test>]
+    let ``Heartbeat is rejected if an update hasn't propagated`` () =
+        let clusterSize = 5
+        let cluster, network = InMemoryCluster.make<byte> clusterSize
+
+        let startupSequence =
+            [
+                NetworkAction.InactivityTimeout 1<ServerId>
+                // Two servers vote for server 1...
+                NetworkAction.NetworkMessage (2<ServerId>, 0)
+                NetworkAction.NetworkMessage (3<ServerId>, 0)
+                // Server 1 processes incoming votes, and achieves majority, electing itself leader!
+                NetworkAction.NetworkMessage (1<ServerId>, 0)
+                NetworkAction.NetworkMessage (1<ServerId>, 1)
+                // and the other votes are processed and discarded
+                NetworkAction.NetworkMessage (0<ServerId>, 0)
+                NetworkAction.NetworkMessage (4<ServerId>, 0)
+                NetworkAction.NetworkMessage (1<ServerId>, 2)
+                NetworkAction.NetworkMessage (1<ServerId>, 3)
+                // Get the followers' heartbeat processing out of the way
+                NetworkAction.NetworkMessage (0<ServerId>, 1)
+                NetworkAction.NetworkMessage (2<ServerId>, 1)
+                NetworkAction.NetworkMessage (3<ServerId>, 1)
+                NetworkAction.NetworkMessage (4<ServerId>, 1)
+                NetworkAction.NetworkMessage (1<ServerId>, 4)
+                NetworkAction.NetworkMessage (1<ServerId>, 5)
+                NetworkAction.NetworkMessage (1<ServerId>, 6)
+                NetworkAction.NetworkMessage (1<ServerId>, 7)
+                // Submit data to leader, then heartbeat leader, and process heartbeat on another node.
+                // This should come through as "follower did not apply leader entry".
+                // (This is correct: the network has effectively dropped all the leader's AppendEntries messages,
+                // and the protocol has correctly allowed the followers to recognise that their logs are inconsistent
+                // with the leader's.)
+                NetworkAction.ClientRequest (1<ServerId>, byte 3, printfn "processed: %O")
+                NetworkAction.Heartbeat 1<ServerId>
+
+                // Deliver the heartbeat messages.
+                NetworkAction.NetworkMessage (0<ServerId>, 2)
+                NetworkAction.NetworkMessage (2<ServerId>, 2)
+                NetworkAction.NetworkMessage (3<ServerId>, 2)
+                NetworkAction.NetworkMessage (4<ServerId>, 2)
+            ]
+
+        for action in startupSequence do
+            NetworkAction.perform cluster network action
+
+        // The servers have all rejected the heartbeat.
+        network.UndeliveredMessages 1<ServerId>
+        |> List.map (fun (_index, message) ->
+            match message with
+            | Message.Reply (Reply.AppendEntriesReply reply) -> reply
+            | _ -> failwithf "Unexpected reply: %+A" message
+        )
+        |> shouldEqual
+            [
+                {
+                    Success = None
+                    Follower = 0<ServerId>
+                    FollowerTerm = 1<Term>
+                }
+                {
+                    Success = None
+                    Follower = 2<ServerId>
+                    FollowerTerm = 1<Term>
+                }
+                {
+                    Success = None
+                    Follower = 3<ServerId>
+                    FollowerTerm = 1<Term>
+                }
+                {
+                    Success = None
+                    Follower = 4<ServerId>
+                    FollowerTerm = 1<Term>
+                }
+            ]

@@ -17,19 +17,17 @@
     flake-utils,
     ...
   }:
-    flake-utils.lib.eachDefaultSystem (
-      system: let
-        pkgs = nixpkgs.legacyPackages.${system};
-      in {
-        devShell = pkgs.mkShell {
-          buildInputs =
-            [alejandra.defaultPackage.${system} pkgs.nodejs-14_x pkgs.dotnet-sdk_6]
-            ++ (
-              if pkgs.stdenv.isDarwin
-              then [pkgs.darwin.apple_sdk.frameworks.CoreServices]
-              else []
-            );
-        };
-      }
-    );
+    flake-utils.lib.eachSystem [flake-utils.lib.system.aarch64-darwin] (system: let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      devShells.default = pkgs.mkShell {
+        buildInputs =
+          [alejandra.defaultPackage.${system} pkgs.nodejs-14_x pkgs.dotnet-sdk_6]
+          ++ (
+            if pkgs.stdenv.isDarwin
+            then [pkgs.darwin.apple_sdk.frameworks.CoreServices]
+            else []
+          );
+      };
+    });
 }

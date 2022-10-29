@@ -57,22 +57,52 @@ module Program =
             printf "Unrecognised input. "
             None
 
-    let rec getHeartbeater (clusterSize : int) (serverId : string) =
-        // TODO: restrict this to the leaders only
+    let rec getHeartbeat (leaders : Set<int<ServerId>>) (clusterSize : int) (serverId : string) =
         match Int32.TryParse serverId with
         | true, serverId ->
             if serverId >= clusterSize || serverId < 0 then
                 printf "Server ID must be between 0 and %i inclusive. " (clusterSize - 1)
                 None
             else
-                Some (serverId * 1<ServerId>)
+                let serverId = serverId * 1<ServerId>
+
+                if leaders |> Set.contains serverId then
+                    Some serverId
+                else
+                    printf "Cannot heartbeat a non-leader. "
+                    None
         | false, _ ->
             printf "Unrecognised input. "
             None
 
-    let rec getAction (clusterSize : int) =
+    let rec getClientData (clusterSize : int) (s : string) =
+        let s = s.Trim ()
+
+        match s.Split ',' |> List.ofArray with
+        | serverId :: rest ->
+            match Int32.TryParse serverId with
+            | true, serverId ->
+                if serverId >= clusterSize || serverId < 0 then
+                    printf "Server ID must be between 0 and %i inclusive. " (clusterSize - 1)
+                    None
+                else
+                    let rest = String.concat "," rest |> fun s -> s.Trim ()
+
+                    match Byte.TryParse rest with
+                    | true, b -> Some (serverId * 1<ServerId>, b)
+                    | false, _ ->
+                        printfn "Client data must be a byte, e.g. 255, 0, or 43."
+                        None
+            | false, _ ->
+                printfn "Server ID expected as first comma-separated component."
+                None
+        | _ ->
+            printfn "Expected server ID and byte, e.g. '3,76'"
+            None
+
+    let rec getAction (leaders : Set<int<ServerId>>) (clusterSize : int) : NetworkAction<byte> =
         printf
-            "Enter action. Trigger [t]imeout <server id>, [h]eartbeat a leader <server id>, [d]rop message <server id, message id>, or allow [m]essage <server id, message id>: "
+            "Enter action. Trigger [t]imeout <server id>, [h]eartbeat a leader <server id>, [d]rop message <server id, message id>, [s]ubmit data <server id, byte>, or allow [m]essage <server id, message id>: "
 
         let s =
             let rec go () =
@@ -85,22 +115,26 @@ module Program =
         | 'T' ->
             match getTimeout clusterSize s.[1..] with
             | Some t -> t |> InactivityTimeout
-            | None -> getAction clusterSize
+            | None -> getAction leaders clusterSize
         | 'D' ->
             match getMessage clusterSize s.[1..] with
             | Some m -> m |> DropMessage
-            | None -> getAction clusterSize
+            | None -> getAction leaders clusterSize
         | 'M' ->
             match getMessage clusterSize s.[1..] with
             | Some m -> m |> NetworkMessage
-            | None -> getAction clusterSize
+            | None -> getAction leaders clusterSize
         | 'H' ->
-            match getHeartbeater clusterSize s.[1..] with
+            match getHeartbeat leaders clusterSize s.[1..] with
             | Some h -> Heartbeat h
-            | None -> getAction clusterSize
+            | None -> getAction leaders clusterSize
+        | 'S' ->
+            match getClientData clusterSize s.[1..] with
+            | Some (server, data) -> ClientRequest (server, data, printfn "%O")
+            | None -> getAction leaders clusterSize
         | _ ->
             printf "Unrecognised input. "
-            getAction clusterSize
+            getAction leaders clusterSize
 
     let electLeader =
         [
@@ -117,7 +151,7 @@ module Program =
     [<EntryPoint>]
     let main _argv =
         let clusterSize = 5
-        let cluster, network = InMemoryCluster.make<int> clusterSize
+        let cluster, network = InMemoryCluster.make<byte> clusterSize
 
         let startupSequence =
             [
@@ -150,6 +184,9 @@ module Program =
                 NetworkAction.NetworkMessage (0<ServerId>, 2)
                 NetworkAction.NetworkMessage (1<ServerId>, 6)
             ]
+            |> ignore
+
+            []
 
         for action in startupSequence do
             NetworkAction.perform cluster network action
@@ -158,11 +195,24 @@ module Program =
             printNetworkState network
             printClusterState cluster
 
-            let action = getAction clusterSize
+            let leaders =
+                Seq.init
+                    clusterSize
+                    (fun i ->
+                        let i = i * 1<ServerId>
+                        i, cluster.State i
+                    )
+                |> Seq.choose (fun (i, status) ->
+                    match status with
+                    | Leader _ -> Some i
+                    | _ -> None
+                )
+                |> Set.ofSeq
+
+            let action = getAction leaders clusterSize
             NetworkAction.perform cluster network action
 
         // TODO: log out the committed state so that we can see whether the leader is correctly
         // processing heartbeat responses
-        // TODO: allow client queries!
 
         0

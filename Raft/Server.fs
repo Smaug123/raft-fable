@@ -83,7 +83,7 @@ type AppendEntriesReply =
             | Some index -> sprintf "successfully applied leader entry, log length %i" index
             | None -> "did not apply leader entry"
 
-        sprintf "Follower %i %s" this.FollowerTerm description
+        sprintf "Follower %i (at term %i) %s" this.Follower this.FollowerTerm description
 
 /// I am the leader. Followers, update your state as follows.
 type AppendEntriesMessage<'a> =
@@ -153,6 +153,7 @@ type Reply =
         | RequestVoteReply v -> v.ToString ()
         | AppendEntriesReply r -> r.ToString ()
 
+[<RequireQualifiedAccess>]
 type Message<'a> =
     | Instruction of Instruction<'a>
     | Reply of Reply
@@ -475,12 +476,14 @@ type Server<'a>
         | ServerSpecialisation.Candidate _
         | ServerSpecialisation.Follower _ -> ()
         | ServerSpecialisation.Leader _ ->
+            let lastLogEntry = persistentState.GetLastLogEntry () |> Option.map snd
+
             for i in 0 .. clusterSize - 1 do
                 if i * 1<ServerId> <> me then
                     {
                         LeaderTerm = persistentState.CurrentTerm
                         LeaderId = me
-                        PrevLogEntry = persistentState.GetLastLogEntry () |> Option.map snd
+                        PrevLogEntry = lastLogEntry
                         NewEntry = None
                         LeaderCommitIndex = volatileState.CommitIndex
                         ReplyChannel =
@@ -585,8 +588,8 @@ type Server<'a>
                             |> Instruction.RequestVote
                             |> Message.Instruction
                             |> messageChannel (i * 1<ServerId>)
-                | ServerAction.Receive (Instruction m) -> processMessage m
-                | ServerAction.Receive (Reply r) -> processReply r
+                | ServerAction.Receive (Message.Instruction m) -> processMessage m
+                | ServerAction.Receive (Message.Reply r) -> processReply r
                 | ServerAction.Receive (Message.ClientRequest (toAdd, replyChannel)) ->
                     match currentType with
                     | ServerSpecialisation.Leader _ ->
