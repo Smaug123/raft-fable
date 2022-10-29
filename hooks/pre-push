@@ -9,8 +9,16 @@ def check_fantomas():
         raise Exception(f"Formatting incomplete (return code: {result.returncode}). Consider running `dotnet tool run fantomas -r .`")
 
 
+def check_alejandra():
+    result = subprocess.run(["alejandra", "--check", "--quiet", "*.nix"])
+    if result.returncode != 0:
+        print(result.stdout)
+        raise Exception(f"Formatting incomplete (return code: {result.returncode}). Consider running `alejandra *.nix`")
+
+
 def main():
     check_fantomas()
+    check_alejandra()
 
 
 if __name__ == "__main__":
