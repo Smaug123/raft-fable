@@ -44,7 +44,7 @@ type Network<'a> =
     member this.InboundMessage (i : int<ServerId>) (id : int) : Message<'a> =
         this.CompleteMessageHistory.[i / 1<ServerId>].[id]
 
-    member this.DropMessage (i : int<ServerId>) (id : int) =
+    member this.DropMessage (i : int<ServerId>) (id : int) : unit =
         this.MessagesDelivered.[i / 1<ServerId>].Add id |> ignore
 
     member this.UndeliveredMessages (i : int<ServerId>) : (int * Message<'a>) list =

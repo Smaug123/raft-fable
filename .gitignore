@@ -6,3 +6,5 @@ riderModule.iml
 .idea/
 *.user
 *.DotSettings
+# Fable output
+*.fs.js

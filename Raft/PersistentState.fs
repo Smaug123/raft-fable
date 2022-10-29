@@ -32,7 +32,11 @@ type InMemoryPersistentState<'a> () =
         member this.CurrentTerm = currentTerm * 1<Term>
 
         member this.IncrementTerm () =
+#if FABLE_COMPILER
+            currentTerm <- currentTerm + 1
+#else
             Interlocked.Increment &currentTerm |> ignore
+#endif
 
         member this.VotedFor = votedFor
         member this.Vote id = votedFor <- Some id
