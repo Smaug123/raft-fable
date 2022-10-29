@@ -6,6 +6,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Raft.Test", "Raft.Test\Raft
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "RaftExplorer", "RaftExplorer\RaftExplorer.fsproj", "{204FDA9A-F3B7-46CC-97F1-A39B55AA7A7A}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "RaftFable", "RaftFable\src\RaftFable.fsproj", "{0A68B09E-3BE3-42AB-A741-F65EED775D5A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{204FDA9A-F3B7-46CC-97F1-A39B55AA7A7A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{204FDA9A-F3B7-46CC-97F1-A39B55AA7A7A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{204FDA9A-F3B7-46CC-97F1-A39B55AA7A7A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0A68B09E-3BE3-42AB-A741-F65EED775D5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0A68B09E-3BE3-42AB-A741-F65EED775D5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0A68B09E-3BE3-42AB-A741-F65EED775D5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0A68B09E-3BE3-42AB-A741-F65EED775D5A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

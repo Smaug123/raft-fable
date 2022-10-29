@@ -85,16 +85,17 @@ module InMemoryCluster =
 
         cluster, network
 
-type NetworkAction =
+type NetworkAction<'a> =
     | InactivityTimeout of int<ServerId>
     | NetworkMessage of int<ServerId> * int
     | DropMessage of int<ServerId> * int
+    | ClientRequest of int<ServerId> * 'a * (ClientReply -> unit)
     | Heartbeat of int<ServerId>
 
 [<RequireQualifiedAccess>]
 module NetworkAction =
 
-    let perform<'a> (cluster : Cluster<'a>) (network : Network<'a>) (action : NetworkAction) : unit =
+    let perform<'a> (cluster : Cluster<'a>) (network : Network<'a>) (action : NetworkAction<'a>) : unit =
         match action with
         | InactivityTimeout serverId -> cluster.InactivityTimeout serverId
         | Heartbeat serverId -> cluster.HeartbeatTimeout serverId
@@ -102,3 +103,5 @@ module NetworkAction =
         | NetworkMessage (serverId, messageId) ->
             network.InboundMessage serverId messageId |> cluster.SendMessage serverId
             network.DropMessage serverId messageId
+        | ClientRequest (server, request, replyChannel) ->
+            Message.ClientRequest (request, replyChannel) |> cluster.SendMessage server

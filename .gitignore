@@ -8,3 +8,5 @@ riderModule.iml
 *.DotSettings
 # Fable output
 *.fs.js
+node_modules/
+.profile*
