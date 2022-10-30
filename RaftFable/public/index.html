@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <title>Fable</title>
   <meta http-equiv='Content-Type' content='text/html; charset=utf-8'>
@@ -9,8 +9,21 @@
     <table class="server-statuses">
     </table>
     <p class="startup-text">Fable is running</p>
-    <button class="timeout-button">Inactivity timeout server:</button> <input type="number" class="timeout-text" />
-    <button class="heartbeat-button">Heartbeat server:</button> <input type="number" class="heartbeat-text" />
+    <form>
+        <input type="number" class="timeout-text" />
+        <button id="timeout-button" class="timeout-button" type="button">Inactivity timeout server</button>
+    </form>
+    <form>
+        <input type="number" class="heartbeat-text" />
+        <button class="heartbeat-button" type="button">Heartbeat server</button>
+    </form>
+    <form>
+        <label for="client-server-selection">Server to send to</label>
+        <input type="number" id="client-server-selection" class="client-server-selection" />
+        <label for="client-data">Data to send</label>
+        <input type="number" id="client-data" class="client-data" />
+        <button class="client-data-submit" type="button">Submit client data</button>
+    </form>
     <table class="button-area"></table>
     <script src="bundle.js"></script>
 </body>

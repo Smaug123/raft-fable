@@ -3,6 +3,8 @@
     <TargetFramework>net6.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Table.fs" />
+    <Compile Include="Button.fs" />
     <Compile Include="App.fs" />
   </ItemGroup>
   <ItemGroup>
