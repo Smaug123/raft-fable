@@ -6,9 +6,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
+    <p class="startup-text">Starting up...</p>
+    <h2>Status of each server</h2>
     <table class="server-statuses">
     </table>
-    <p class="startup-text">Fable is running</p>
+    <h2>Logs stored on each server</h2>
+    <table class="log-area">
+    </table>
+    <h2>Leader information</h2>
+    <div class="leader-area">
+        Leader information for server <b class="leader-state"></b>
+        <form>
+            <input type="number" class="leader-select" />
+            <button id="leader-select-button" class="leader-select-button" type="button">Display info for this leader</button>
+        </form>
+        <table class="leader-state-table">
+        </table>
+    </div>
+    <h2>Interaction</h2>
     <form>
         <input type="number" class="timeout-text" />
         <button id="timeout-button" class="timeout-button" type="button">Inactivity timeout server</button>
@@ -24,6 +39,7 @@
         <input type="number" id="client-data" class="client-data" />
         <button class="client-data-submit" type="button">Submit client data</button>
     </form>
+    <h2>Messages in flight</h2>
     <table class="button-area"></table>
     <script src="bundle.js"></script>
 </body>

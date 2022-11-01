@@ -20,16 +20,32 @@ type VolatileState =
 
 type LeaderState =
     {
-        /// For each server, index of the next log entry to send to that server
-        NextIndex : int<LogIndex> array
+        /// For each server, index of the log entry to send to them next. Note that this might not
+        /// actually be the *first* index we need to send - the recipient may reject this message.
+        /// When they reject this message, we'll decrement ToSend and try again with an earlier
+        /// message, until eventually we go far back enough in time that our log intersects with
+        /// that of the recipient, and they'll accept it.
+        ToSend : int<LogIndex> array
         /// For each server, index of the highest log entry known to be replicated on that server
         MatchIndex : int<LogIndex> array
     }
 
     static member New (clusterSize : int) (currentIndex : int<LogIndex>) : LeaderState =
         {
-            NextIndex = Array.create clusterSize (currentIndex + 1<LogIndex>)
+            // +1, because these are indexed from 1.
+            ToSend = Array.create clusterSize (currentIndex + 1<LogIndex>)
             MatchIndex = Array.zeroCreate clusterSize
+        }
+
+    member this.Clone () =
+        let cloneArray (arr : 'b array) : 'b array =
+            let result = Array.zeroCreate<'b> arr.Length
+            System.Array.Copy (arr, result, arr.Length)
+            result
+
+        {
+            ToSend = cloneArray this.ToSend
+            MatchIndex = cloneArray this.MatchIndex
         }
 
 /// You asked me to vote for you to become leader. Here is my response.
@@ -99,6 +115,8 @@ type AppendEntriesMessage<'a> =
         /// with what happened during terms that took place while it was down.
         NewEntry : ('a * int<Term>) option
         LeaderCommitIndex : int<LogIndex>
+        /// TODO - we don't need this, the responder should just construct
+        /// the appropriate Message and send it themselves
         ReplyChannel : AppendEntriesReply -> unit
     }
 
@@ -114,6 +132,17 @@ type AppendEntriesMessage<'a> =
             this.LeaderId
             this.LeaderTerm
             this.LeaderCommitIndex
+
+/// A readout of the server's internal state, suitable for e.g. debugging tools.
+type ServerInternalState<'a> =
+    {
+        LogIndex : int<LogIndex>
+        CurrentTerm : int<Term>
+        CurrentVote : int<ServerId> option
+        Log : ('a * int<Term>) option list
+        /// A clone of the leader state, if this is a leader.
+        LeaderState : LeaderState option
+    }
 
 type ClientReply =
     /// You asked a node that isn't the leader. Here's a hint about whom you should ask instead.
@@ -208,6 +237,7 @@ type private ServerAction<'a> =
     | EmitHeartbeat
     | Receive of Message<'a>
     | Sync of AsyncReplyChannel<unit>
+    | StateReadout of AsyncReplyChannel<ServerInternalState<'a>>
 
 [<RequireQualifiedAccess>]
 module internal ServerUtils =
@@ -468,30 +498,39 @@ type Server<'a>
                 assert (logIsConsistent message)
                 acceptRequest ()
 
+    let sendAppendEntries (leaderState : LeaderState) (j : int<ServerId>) =
+        let toSend = leaderState.ToSend.[j / 1<ServerId>]
+        let prevLogTerm = persistentState.GetLogEntry (toSend - 1<LogIndex>)
+
+        {
+            LeaderTerm = persistentState.CurrentTerm
+            LeaderId = me
+            PrevLogEntry =
+                match prevLogTerm with
+                | None -> None
+                | Some (_, term) ->
+                    {
+                        Term = term
+                        Index = toSend - 1<LogIndex>
+                    }
+                    |> Some
+            NewEntry = persistentState.GetLogEntry toSend
+            LeaderCommitIndex = volatileState.CommitIndex
+            ReplyChannel = fun reply -> reply |> Reply.AppendEntriesReply |> Message.Reply |> messageChannel me
+        }
+        |> Instruction.AppendEntries
+        |> Message.Instruction
+        |> messageChannel j
+
     let divideByTwoRoundingUp (n : int) =
         if n % 2 = 0 then n / 2 else (n / 2) + 1
 
-    let emitHeartbeat () =
-        match currentType with
-        | ServerSpecialisation.Candidate _
-        | ServerSpecialisation.Follower _ -> ()
-        | ServerSpecialisation.Leader _ ->
-            let lastLogEntry = persistentState.GetLastLogEntry () |> Option.map snd
+    let emitHeartbeat (leaderState : LeaderState) =
+        for i in 0 .. clusterSize - 1 do
+            let i = i * 1<ServerId>
 
-            for i in 0 .. clusterSize - 1 do
-                if i * 1<ServerId> <> me then
-                    {
-                        LeaderTerm = persistentState.CurrentTerm
-                        LeaderId = me
-                        PrevLogEntry = lastLogEntry
-                        NewEntry = None
-                        LeaderCommitIndex = volatileState.CommitIndex
-                        ReplyChannel =
-                            fun reply -> messageChannel me (reply |> Reply.AppendEntriesReply |> Message.Reply)
-                    }
-                    |> Instruction.AppendEntries
-                    |> Message.Instruction
-                    |> messageChannel (i * 1<ServerId>)
+            if i <> me then
+                sendAppendEntries leaderState i
 
     let processReply (r : Reply) : unit =
         match r with
@@ -504,13 +543,15 @@ type Server<'a>
             if appendEntriesReply.FollowerTerm = persistentState.CurrentTerm then
                 match appendEntriesReply.Success with
                 | Some matchIndex ->
+                    // They applied our request. Update our record of what we know they have applied...
                     leaderState.MatchIndex.[appendEntriesReply.Follower / 1<ServerId>] <- matchIndex
-                    leaderState.NextIndex.[appendEntriesReply.Follower / 1<ServerId>] <- matchIndex + 1<LogIndex>
+                    // ... and update our record of what we'll be sending them next.
+                    leaderState.ToSend.[appendEntriesReply.Follower / 1<ServerId>] <- matchIndex + 1<LogIndex>
                 | None ->
-                    leaderState.NextIndex.[appendEntriesReply.Follower / 1<ServerId>] <-
-                        max
-                            (leaderState.NextIndex.[appendEntriesReply.Follower / 1<ServerId>] - 1<LogIndex>)
-                            1<LogIndex>
+                    // They failed to apply our request. Next time, we'll be trying one message further
+                    // back in our history.
+                    leaderState.ToSend.[appendEntriesReply.Follower / 1<ServerId>] <-
+                        max (leaderState.ToSend.[appendEntriesReply.Follower / 1<ServerId>] - 1<LogIndex>) 1<LogIndex>
                 // Note that the decision to process this *here* means the algorithm doesn't work in clusters of
                 // only one node, because then there will never be any AppendEntries replies.
                 let maxLogAQuorumHasCommitted =
@@ -551,11 +592,10 @@ type Server<'a>
                         state.Votes > clusterSize / 2
                 then
                     // Become the leader!
-                    currentType <-
-                        LeaderState.New clusterSize persistentState.CurrentLogIndex
-                        |> ServerSpecialisation.Leader
+                    let state = LeaderState.New clusterSize persistentState.CurrentLogIndex
+                    currentType <- ServerSpecialisation.Leader state
 
-                    emitHeartbeat ()
+                    emitHeartbeat state
 
     let mailbox =
         let rec loop (mailbox : MailboxProcessor<_>) =
@@ -565,7 +605,12 @@ type Server<'a>
                 //System.Console.WriteLine toPrint
 
                 match m with
-                | ServerAction.EmitHeartbeat -> emitHeartbeat ()
+                | ServerAction.EmitHeartbeat ->
+                    match currentType with
+                    | ServerSpecialisation.Leader state -> emitHeartbeat state
+                    | ServerSpecialisation.Candidate _
+                    | ServerSpecialisation.Follower _ -> ()
+
                 | ServerAction.BeginElection ->
                     match currentType with
                     | ServerSpecialisation.Leader _ -> ()
@@ -592,13 +637,32 @@ type Server<'a>
                 | ServerAction.Receive (Message.Reply r) -> processReply r
                 | ServerAction.Receive (Message.ClientRequest (toAdd, replyChannel)) ->
                     match currentType with
-                    | ServerSpecialisation.Leader _ ->
+                    | ServerSpecialisation.Leader leaderState ->
                         persistentState.AppendToLog toAdd persistentState.CurrentTerm
                         replyChannel ClientReply.Acknowledged
+                        emitHeartbeat leaderState
                     | ServerSpecialisation.Follower followerState ->
                         replyChannel (ClientReply.Redirect followerState.CurrentLeader)
                     | ServerSpecialisation.Candidate _ -> replyChannel ClientReply.Dropped
                 | ServerAction.Sync replyChannel -> replyChannel.Reply ()
+                | ServerAction.StateReadout replyChannel ->
+                    {
+                        LogIndex = persistentState.CurrentLogIndex
+                        CurrentTerm = persistentState.CurrentTerm
+                        CurrentVote = persistentState.VotedFor
+                        Log =
+                            match persistentState.GetLastLogEntry () with
+                            | None -> []
+                            | Some (_, last) ->
+                                List.init
+                                    (last.Index / 1<LogIndex>)
+                                    (fun index -> persistentState.GetLogEntry (1<LogIndex> + index * 1<LogIndex>))
+                        LeaderState =
+                            match currentType with
+                            | ServerSpecialisation.Leader state -> state.Clone () |> Some
+                            | _ -> None
+                    }
+                    |> replyChannel.Reply
 
                 return! loop mailbox
             }
@@ -616,6 +680,11 @@ type Server<'a>
     member this.TriggerHeartbeatTimeout () = mailbox.Post ServerAction.EmitHeartbeat
 
     member this.Message (m : Message<'a>) = mailbox.Post (ServerAction.Receive m)
+
+    member this.GetCurrentInternalState () : Async<ServerInternalState<'a>> =
+        mailbox.PostAndAsyncReply ServerAction.StateReadout
+
+    member this.PersistentState = persistentState
 
     member this.Sync () =
         // This rather eccentric phrasing is so that Fable can run this mailbox.

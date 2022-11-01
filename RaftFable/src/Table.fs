@@ -22,7 +22,7 @@ module Table =
         (document : Browser.Types.Document)
         (elements : seq<#Browser.Types.Node option>)
         (table : Browser.Types.HTMLTableElement)
-        : unit =
+        : Browser.Types.HTMLTableRowElement =
         let row = document.createElement "tr" :?> Browser.Types.HTMLTableRowElement
 
         for col in elements do
@@ -35,3 +35,4 @@ module Table =
             row.appendChild entry |> ignore
 
         table.appendChild row |> ignore
+        row

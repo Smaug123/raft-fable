@@ -1,9 +1,9 @@
 namespace RaftFable
 
-
 open Fable.Core.JS
 open Raft
 open Browser.Dom
+open Fable.Core
 
 module App =
 
@@ -27,6 +27,42 @@ module App =
             statusCell
         |> List.init clusterSize
 
+    let logArea = document.querySelector ".log-area" :?> Browser.Types.HTMLTableElement
+
+    logArea.border <- "1px"
+
+    let renderLogArea (cluster : Cluster<'a>) =
+        logArea.innerText <- ""
+
+        let rows =
+            List.init
+                cluster.ClusterSize
+                (fun i ->
+                    let cell = document.createElement "th" :?> Browser.Types.HTMLTableCellElement
+                    cell.textContent <- sprintf "Server %i" i
+                    Table.createRow document [ Some cell ] logArea
+                )
+
+        rows
+        |> List.iteri (fun i row ->
+            let i = i * 1<ServerId>
+
+            cluster.GetCurrentInternalState i
+            |> Async.StartAsPromise
+            |> fun p ->
+                p.``then`` (fun state ->
+                    for logEntry in state.Log do
+                        let cell = document.createElement "td" :?> Browser.Types.HTMLTableCellElement
+
+                        match logEntry with
+                        | None -> cell.textContent <- "<none>"
+                        | Some (value, term) -> cell.textContent <- sprintf "%i: %O" term value
+
+                        row.appendChild cell |> ignore
+                )
+            |> ignore
+        )
+
     let messageQueueArea =
         document.querySelector ".button-area" :?> Browser.Types.HTMLTableElement
 
@@ -40,15 +76,86 @@ module App =
 
     resetButtonArea ()
 
+    let setLeaderState (cluster : Cluster<'a>) (id : int<ServerId>) =
+        let leaderIdBox =
+            document.querySelector ".leader-state" :?> Browser.Types.HTMLBlockElement
+
+        leaderIdBox.innerText <- sprintf "%i" id
+
+        let leaderIdTable =
+            document.querySelector ".leader-state-table" :?> Browser.Types.HTMLTableElement
+
+        leaderIdTable.innerText <- ""
+
+        leaderIdTable
+        |> Table.createHeaderRow document ("" :: List.init clusterSize (sprintf "Server %i"))
+
+        let leaderStatePromise = cluster.GetCurrentInternalState id |> Async.StartAsPromise
+
+        leaderStatePromise.``then`` (fun state ->
+            match state.LeaderState with
+            | None -> leaderIdBox.innerText <- sprintf "%i: not a leader" id
+            | Some state ->
+
+            let knownStoredIndices =
+                state.MatchIndex
+                |> Seq.mapi (fun target index ->
+                    let target = target * 1<ServerId>
+                    if target = id then "(self)" else sprintf "%i" index
+                )
+                |> Seq.toList
+                |> fun l -> "Log index known to be stored on each node" :: l
+                |> List.map (fun text ->
+                    let node = document.createElement "div"
+                    node.innerText <- text
+                    Some node
+                )
+
+            Table.createRow document knownStoredIndices leaderIdTable |> ignore
+
+            let nextToSend =
+                state.ToSend
+                |> Seq.mapi (fun target index ->
+                    let target = target * 1<ServerId>
+                    if target = id then "(self)" else sprintf "%i" index
+                )
+                |> Seq.toList
+                |> fun l -> "Will try next to send this index" :: l
+                |> List.map (fun text ->
+                    let node = document.createElement "div"
+                    node.innerText <- text
+                    Some node
+                )
+
+            Table.createRow document nextToSend leaderIdTable |> ignore
+        )
+
     let printClusterState<'a> (cluster : Cluster<'a>) : unit =
         for i in 0 .. cluster.ClusterSize - 1 do
-            serverStatusNodes.[i].textContent <- cluster.State (i * 1<ServerId>) |> string<ServerStatus>
+            let status = cluster.Status (i * 1<ServerId>)
+            serverStatusNodes.[i].textContent <- status |> string<ServerStatus>
 
     let cluster, network = InMemoryCluster.make<byte> clusterSize
+
+    let leaderStateButton =
+        document.querySelector ".leader-select-button" :?> Browser.Types.HTMLButtonElement
+
+    let selectedLeaderId =
+        document.querySelector ".leader-select" :?> Browser.Types.HTMLInputElement
+
+    selectedLeaderId.min <- "0"
+    selectedLeaderId.max <- sprintf "%i" (clusterSize - 1)
+    selectedLeaderId.defaultValue <- "0"
+
+    leaderStateButton.onclick <-
+        fun _ ->
+            let id = selectedLeaderId.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
+            setLeaderState cluster id
 
     let performWithoutPrintingNetworkState action =
         NetworkAction.perform cluster network action
         printClusterState cluster
+        renderLogArea cluster
 
     let rec printNetworkState<'a> (network : Network<'a>) : unit =
         resetButtonArea ()
@@ -79,7 +186,7 @@ module App =
             |> List.transpose
 
         for row in allButtons' do
-            Table.createRow document row messageQueueArea
+            Table.createRow document row messageQueueArea |> ignore
 
     let perform (action : NetworkAction<_>) : unit =
         performWithoutPrintingNetworkState action
@@ -87,8 +194,6 @@ module App =
 
     let startupText =
         document.querySelector ".startup-text" :?> Browser.Types.HTMLParagraphElement
-
-    startupText.textContent <- "Starting up..."
 
     let startupSequence =
         [
@@ -123,7 +228,7 @@ module App =
         ]
         |> fun s -> (Constructors.Promise.resolve (printClusterState cluster), s)
         ||> List.fold (fun (inPromise : Promise<unit>) action -> inPromise.``then`` (fun () -> perform action))
-        |> fun p -> p.``then`` (fun () -> startupText.textContent <- "Started! Press buttons.")
+        |> fun p -> p.``then`` (fun () -> startupText.textContent <- "")
 
     let timeoutButton =
         document.querySelector ".timeout-button" :?> Browser.Types.HTMLButtonElement
@@ -144,6 +249,8 @@ module App =
                 |> InactivityTimeout
                 |> perform
 
+                printClusterState cluster
+                renderLogArea cluster
                 printNetworkState network
             )
 
@@ -166,6 +273,8 @@ module App =
                 |> Heartbeat
                 |> perform
 
+                printClusterState cluster
+                renderLogArea cluster
                 printNetworkState network
             )
 
@@ -196,4 +305,6 @@ module App =
                 NetworkAction.ClientRequest (server, data, printfn "%O") |> perform
 
                 printClusterState cluster
+                renderLogArea cluster
+                printNetworkState network
             )

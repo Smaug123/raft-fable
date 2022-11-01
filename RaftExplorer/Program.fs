@@ -18,7 +18,7 @@ module Program =
 
     let printClusterState<'a> (cluster : Cluster<'a>) : unit =
         for i in 0 .. cluster.ClusterSize - 1 do
-            printfn "Server %i: %O" i (cluster.State (i * 1<ServerId>))
+            printfn "Server %i: %O" i (cluster.Status (i * 1<ServerId>))
 
     let getMessage (clusterSize : int) (s : string) : (int<ServerId> * int) option =
         match s.Split ',' with
@@ -200,7 +200,7 @@ module Program =
                     clusterSize
                     (fun i ->
                         let i = i * 1<ServerId>
-                        i, cluster.State i
+                        i, cluster.Status i
                     )
                 |> Seq.choose (fun (i, status) ->
                     match status with

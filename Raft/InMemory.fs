@@ -19,7 +19,10 @@ type Cluster<'a> =
         this.Servers.[i / 1<ServerId>].TriggerHeartbeatTimeout ()
         this.Servers.[i / 1<ServerId>].Sync ()
 
-    member this.State (i : int<ServerId>) : ServerStatus = this.Servers.[i / 1<ServerId>].State
+    member this.Status (i : int<ServerId>) : ServerStatus = this.Servers.[i / 1<ServerId>].State
+
+    member this.GetCurrentInternalState (i : int<ServerId>) : ServerInternalState<'a> Async =
+        this.Servers.[i / 1<ServerId>].GetCurrentInternalState ()
 
     member this.ClusterSize : int = this.Servers.Length
 
