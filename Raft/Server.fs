@@ -186,13 +186,13 @@ type Reply =
 type Message<'a> =
     | Instruction of Instruction<'a>
     | Reply of Reply
-    | ClientRequest of 'a * (ClientReply -> unit)
+    | ClientRequest of 'a
 
     override this.ToString () =
         match this with
         | Instruction i -> i.ToString ()
         | Reply r -> r.ToString ()
-        | ClientRequest (a, _) -> sprintf "Client requested insertion of: %O" a
+        | ClientRequest a -> sprintf "Client requested insertion of: %O" a
 
 type private CandidateState =
     {
@@ -635,15 +635,18 @@ type Server<'a>
                             |> messageChannel (i * 1<ServerId>)
                 | ServerAction.Receive (Message.Instruction m) -> processMessage m
                 | ServerAction.Receive (Message.Reply r) -> processReply r
-                | ServerAction.Receive (Message.ClientRequest (toAdd, replyChannel)) ->
+                | ServerAction.Receive (Message.ClientRequest toAdd) ->
                     match currentType with
                     | ServerSpecialisation.Leader leaderState ->
                         persistentState.AppendToLog toAdd persistentState.CurrentTerm
-                        replyChannel ClientReply.Acknowledged
+                        //replyChannel ClientReply.Acknowledged
                         emitHeartbeat leaderState
                     | ServerSpecialisation.Follower followerState ->
-                        replyChannel (ClientReply.Redirect followerState.CurrentLeader)
-                    | ServerSpecialisation.Candidate _ -> replyChannel ClientReply.Dropped
+                        //replyChannel (ClientReply.Redirect followerState.CurrentLeader)
+                        ()
+                    | ServerSpecialisation.Candidate _ ->
+                        //replyChannel ClientReply.Dropped
+                        ()
                 | ServerAction.Sync replyChannel -> replyChannel.Reply ()
                 | ServerAction.StateReadout replyChannel ->
                     {
@@ -673,8 +676,8 @@ type Server<'a>
 #endif
         mailbox
 
-    member this.SendClientRequest (request : 'a) (reply : ClientReply -> unit) =
-        mailbox.Post (ServerAction.Receive (Message.ClientRequest (request, reply)))
+    member this.SendClientRequest (request : 'a) =
+        mailbox.Post (ServerAction.Receive (Message.ClientRequest request))
 
     member this.TriggerInactivityTimeout () = mailbox.Post ServerAction.BeginElection
     member this.TriggerHeartbeatTimeout () = mailbox.Post ServerAction.EmitHeartbeat

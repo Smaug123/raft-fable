@@ -11,16 +11,17 @@ type ClusterState<'a> =
         UndeliveredMessages : (int * Message<'a>) list array
     }
 
-type UserPreferences =
+type UserPreferences<'a> =
     {
         LeaderUnderConsideration : int<ServerId>
         ShowConsumedMessages : bool
+        ActionHistory : NetworkAction<'a> list
     }
 
 type UiBackingState<'a> =
     {
         ClusterState : ClusterState<'a>
-        UserPreferences : UserPreferences
+        UserPreferences : UserPreferences<'a>
     }
 
 type UiElements =
@@ -36,6 +37,7 @@ type UiElements =
         HeartbeatField : Browser.Types.HTMLInputElement
         SelectedLeaderId : Browser.Types.HTMLInputElement
         ShowConsumedMessages : Browser.Types.HTMLInputElement
+        ActionHistory : Browser.Types.HTMLTextAreaElement
     }
 
 type RequiresPopulation =
@@ -76,6 +78,9 @@ module Ui =
         let showConsumed =
             document.querySelector ".show-consumed" :?> Browser.Types.HTMLInputElement
 
+        let actionHistory =
+            document.querySelector ".action-history" :?> Browser.Types.HTMLTextAreaElement
+
         {
             Document = document
             ServerStatusTable = serverStatuses
@@ -88,6 +93,7 @@ module Ui =
             HeartbeatField = heartbeatField
             SelectedLeaderId = selectedLeaderId
             ShowConsumedMessages = showConsumed
+            ActionHistory = actionHistory
         }
 
     let reset (clusterSize : int) (ui : UiElements) : RequiresPopulation =
@@ -319,8 +325,22 @@ module Ui =
                 }
         }
 
-    let getUserPrefs (ui : UiElements) : UserPreferences =
+    let getUserPrefs<'a>
+        (parse : string -> Result<'a, string>)
+        (clusterSize : int)
+        (ui : UiElements)
+        : UserPreferences<'a>
+        =
         {
             LeaderUnderConsideration = ui.SelectedLeaderId.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
             ShowConsumedMessages = ui.ShowConsumedMessages.``checked``
+            ActionHistory =
+                // TODO write these back out again, and give a button to Load
+                ui.ActionHistory.textContent.Split "\n"
+                |> Seq.filter (not << System.String.IsNullOrEmpty)
+                |> Seq.map (NetworkAction.tryParse<'a> parse None clusterSize)
+                |> Result.allOkOrError
+                // TODO handle this
+                |> Result.get
+                |> List.ofSeq
         }

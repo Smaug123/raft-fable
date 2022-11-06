@@ -20,86 +20,6 @@ module Program =
         for i in 0 .. cluster.ClusterSize - 1 do
             printfn "Server %i: %O" i (cluster.Status (i * 1<ServerId>))
 
-    let getMessage (clusterSize : int) (s : string) : (int<ServerId> * int) option =
-        match s.Split ',' with
-        | [| serverId ; messageId |] ->
-            let serverId = serverId.Trim ()
-            let messageId = messageId.Trim ()
-
-            match Int32.TryParse serverId with
-            | true, serverId ->
-                match Int32.TryParse messageId with
-                | true, messageId ->
-                    if serverId >= clusterSize || serverId < 0 then
-                        printf "Server ID must be between 0 and %i inclusive. " (clusterSize - 1)
-                        None
-                    else
-                        Some (serverId * 1<ServerId>, messageId)
-                | false, _ ->
-                    printf "Non-integer input '%s' for message ID. " messageId
-                    None
-            | false, _ ->
-                printf "Non-integer input '%s' for server ID. " serverId
-                None
-        | _ ->
-            printfn "Invalid input."
-            None
-
-    let rec getTimeout (clusterSize : int) (serverId : string) =
-        match Int32.TryParse serverId with
-        | true, serverId ->
-            if serverId >= clusterSize || serverId < 0 then
-                printf "Server ID must be between 0 and %i inclusive. " (clusterSize - 1)
-                None
-            else
-                Some (serverId * 1<ServerId>)
-        | false, _ ->
-            printf "Unrecognised input. "
-            None
-
-    let rec getHeartbeat (leaders : Set<int<ServerId>>) (clusterSize : int) (serverId : string) =
-        match Int32.TryParse serverId with
-        | true, serverId ->
-            if serverId >= clusterSize || serverId < 0 then
-                printf "Server ID must be between 0 and %i inclusive. " (clusterSize - 1)
-                None
-            else
-                let serverId = serverId * 1<ServerId>
-
-                if leaders |> Set.contains serverId then
-                    Some serverId
-                else
-                    printf "Cannot heartbeat a non-leader. "
-                    None
-        | false, _ ->
-            printf "Unrecognised input. "
-            None
-
-    let rec getClientData (clusterSize : int) (s : string) =
-        let s = s.Trim ()
-
-        match s.Split ',' |> List.ofArray with
-        | serverId :: rest ->
-            match Int32.TryParse serverId with
-            | true, serverId ->
-                if serverId >= clusterSize || serverId < 0 then
-                    printf "Server ID must be between 0 and %i inclusive. " (clusterSize - 1)
-                    None
-                else
-                    let rest = String.concat "," rest |> fun s -> s.Trim ()
-
-                    match Byte.TryParse rest with
-                    | true, b -> Some (serverId * 1<ServerId>, b)
-                    | false, _ ->
-                        printfn "Client data must be a byte, e.g. 255, 0, or 43."
-                        None
-            | false, _ ->
-                printfn "Server ID expected as first comma-separated component."
-                None
-        | _ ->
-            printfn "Expected server ID and byte, e.g. '3,76'"
-            None
-
     let rec getAction (leaders : Set<int<ServerId>>) (clusterSize : int) : NetworkAction<byte> =
         printf
             "Enter action. Trigger [t]imeout <server id>, [h]eartbeat a leader <server id>, [d]rop message <server id, message id>, [s]ubmit data <server id, byte>, or allow [m]essage <server id, message id>: "
@@ -111,29 +31,15 @@ module Program =
 
             go ()
 
-        match s.[0] with
-        | 'T' ->
-            match getTimeout clusterSize s.[1..] with
-            | Some t -> t |> InactivityTimeout
-            | None -> getAction leaders clusterSize
-        | 'D' ->
-            match getMessage clusterSize s.[1..] with
-            | Some m -> m |> DropMessage
-            | None -> getAction leaders clusterSize
-        | 'M' ->
-            match getMessage clusterSize s.[1..] with
-            | Some m -> m |> NetworkMessage
-            | None -> getAction leaders clusterSize
-        | 'H' ->
-            match getHeartbeat leaders clusterSize s.[1..] with
-            | Some h -> Heartbeat h
-            | None -> getAction leaders clusterSize
-        | 'S' ->
-            match getClientData clusterSize s.[1..] with
-            | Some (server, data) -> ClientRequest (server, data, printfn "%O")
-            | None -> getAction leaders clusterSize
-        | _ ->
-            printf "Unrecognised input. "
+        let parseByte (s : string) =
+            match Byte.TryParse s with
+            | true, b -> Ok b
+            | false, _ -> Error (sprintf "expected a byte, got '%s'" s)
+
+        match NetworkAction.tryParse parseByte (Some leaders) clusterSize s with
+        | Ok action -> action
+        | Error e ->
+            printfn "%s" e
             getAction leaders clusterSize
 
     let electLeader =

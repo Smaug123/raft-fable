@@ -6,6 +6,7 @@
   <ItemGroup>
     <Compile Include="Table.fs" />
     <Compile Include="Button.fs" />
+    <Compile Include="Result.fs" />
     <Compile Include="Ui.fs" />
     <Compile Include="App.fs" />
   </ItemGroup>

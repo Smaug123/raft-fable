@@ -262,8 +262,6 @@ module TestInMemoryServer =
         let clusterSize = 5
         let cluster, network = InMemoryCluster.make<byte> clusterSize
 
-        let mutable replyChannel = None
-
         let startupSequence =
             [
                 NetworkAction.InactivityTimeout 1<ServerId>
@@ -289,7 +287,7 @@ module TestInMemoryServer =
                 NetworkAction.NetworkMessage (1<ServerId>, 7)
                 // Submit data to leader. This has the effect of heartbeating the other
                 // nodes, with a heartbeat that contains the new data.
-                NetworkAction.ClientRequest (1<ServerId>, byte 3, (fun s -> replyChannel <- Some s))
+                NetworkAction.ClientRequest (1<ServerId>, byte 3)
 
                 // Deliver the data messages.
                 NetworkAction.NetworkMessage (0<ServerId>, 2)
@@ -300,8 +298,6 @@ module TestInMemoryServer =
 
         for action in startupSequence do
             NetworkAction.perform cluster network action
-
-        replyChannel |> Option.get |> shouldEqual ClientReply.Acknowledged
 
         // The servers have all accepted the data.
         network.UndeliveredMessages 1<ServerId>

@@ -11,35 +11,62 @@ module App =
 
     let ui = Ui.initialise document
 
-    let rec fullyRerender<'a> (cluster : Cluster<'a>) (network : Network<'a>) : Promise<unit> =
-        let prefs = Ui.getUserPrefs ui
+    let rec fullyRerender<'a>
+        (parse : string -> Result<'a, string>)
+        (userPrefs : UserPreferences<'a> ref)
+        (cluster : Cluster<'a>)
+        (network : Network<'a>)
+        : Promise<unit>
+        =
+        userPrefs.Value <- Ui.getUserPrefs<'a> parse cluster.ClusterSize ui
 
         Ui.freezeState cluster network
         |> Async.StartAsPromise
         |> fun p ->
             p.``then`` (fun clusterState ->
-                Ui.render
-                    (perform cluster network)
+                Ui.render<'a>
+                    (perform<'a> parse userPrefs cluster network)
                     document
                     ui
                     {
-                        UserPreferences = prefs
+                        UserPreferences = userPrefs.Value
                         ClusterState = clusterState
                     }
             )
 
-    and perform (cluster : Cluster<'a>) (network : Network<'a>) (action : NetworkAction<'a>) : Promise<unit> =
+    and perform<'a>
+        (parse : string -> Result<'a, string>)
+        (userPrefs : UserPreferences<'a> ref)
+        (cluster : Cluster<'a>)
+        (network : Network<'a>)
+        (action : NetworkAction<'a>)
+        : Promise<unit>
+        =
         NetworkAction.perform cluster network action
-        fullyRerender cluster network
 
-    let cluster, network = InMemoryCluster.make<byte> clusterSize
+        userPrefs.Value <-
+            { userPrefs.Value with
+                ActionHistory = action :: userPrefs.Value.ActionHistory
+            }
+
+        fullyRerender parse userPrefs cluster network
+
+    let parseByte (s : string) =
+        match System.Byte.TryParse s with
+        | false, _ -> Error (sprintf "Expected byte, got '%s'" s)
+        | true, v -> Ok v
+
+    let userPrefs : UserPreferences<byte> ref =
+        ref (Ui.getUserPrefs parseByte clusterSize ui)
+
+    let mutable cluster, network = InMemoryCluster.make<byte> clusterSize
 
     let leaderStateButton =
         document.querySelector ".leader-select-button" :?> Browser.Types.HTMLButtonElement
 
-    leaderStateButton.onclick <- fun _ -> fullyRerender cluster network
+    leaderStateButton.onclick <- fun _ -> fullyRerender parseByte userPrefs cluster network
 
-    let startupSequence =
+    let startupActions : NetworkAction<byte> list =
         [
             NetworkAction.InactivityTimeout 0<ServerId>
             NetworkAction.InactivityTimeout 1<ServerId>
@@ -70,54 +97,65 @@ module App =
             NetworkAction.NetworkMessage (0<ServerId>, 2)
             NetworkAction.NetworkMessage (1<ServerId>, 6)
         ]
-        |> List.truncate 0
-        |> fun s -> (fullyRerender cluster network, s)
+
+    ui.ActionHistory.textContent <- startupActions |> Seq.map NetworkAction.toString |> String.concat "\n"
+
+    let reloadActions () =
+        let newCluster, newNetwork = InMemoryCluster.make<byte> clusterSize
+        cluster <- newCluster
+        network <- newNetwork
+
+        userPrefs.Value <- Ui.getUserPrefs parseByte clusterSize ui
+
+        startupActions
+        |> fun s -> (fullyRerender parseByte userPrefs cluster network, s)
         ||> List.fold (fun (inPromise : Promise<unit>) action ->
             promise {
                 let! _ = inPromise
-                return! perform cluster network action
+                return! perform parseByte userPrefs cluster network action
             }
         )
+
+    let reloadActionsButton =
+        document.querySelector ".reload-actions" :?> Browser.Types.HTMLButtonElement
+
+    reloadActionsButton.onclick <- fun _evt -> reloadActions ()
+
+    reloadActions () |> ignore
 
     let timeoutButton =
         document.querySelector ".timeout-button" :?> Browser.Types.HTMLButtonElement
 
     timeoutButton.onclick <-
         fun _event ->
-            startupSequence.``then`` (fun () ->
-                ui.TimeoutField.valueAsNumber
-                |> int
-                |> fun i -> i * 1<ServerId>
-                |> InactivityTimeout
-                |> perform cluster network
-            )
+            ui.TimeoutField.valueAsNumber
+            |> int
+            |> fun i -> i * 1<ServerId>
+            |> InactivityTimeout
+            |> perform parseByte userPrefs cluster network
 
     let heartbeatButton =
         document.querySelector ".heartbeat-button" :?> Browser.Types.HTMLButtonElement
 
     heartbeatButton.onclick <-
         fun _event ->
-            startupSequence.``then`` (fun () ->
-                ui.HeartbeatField.valueAsNumber
-                |> int
-                |> fun i -> i * 1<ServerId>
-                |> Heartbeat
-                |> perform cluster network
-            )
+            ui.HeartbeatField.valueAsNumber
+            |> int
+            |> fun i -> i * 1<ServerId>
+            |> Heartbeat
+            |> perform parseByte userPrefs cluster network
 
     let clientDataSubmitButton =
         document.querySelector ".client-data-submit" :?> Browser.Types.HTMLButtonElement
 
     clientDataSubmitButton.onclick <-
         fun _event ->
-            startupSequence.``then`` (fun () ->
-                let server =
-                    ui.ClientDataServerField.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
+            let server =
+                ui.ClientDataServerField.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
 
-                let data = ui.ClientDataField.valueAsNumber |> byte
+            let data = ui.ClientDataField.valueAsNumber |> byte
 
-                NetworkAction.ClientRequest (server, data, printfn "%O")
-                |> perform cluster network
-            )
+            NetworkAction.ClientRequest (server, data)
+            |> perform parseByte userPrefs cluster network
 
-    ui.ShowConsumedMessages.onchange <- fun _event -> fullyRerender cluster network
+    ui.ShowConsumedMessages.onchange <- fun _event -> fullyRerender parseByte userPrefs cluster network
