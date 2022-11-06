@@ -7,12 +7,14 @@ type ClusterState<'a> =
         ClusterSize : int
         InternalState : ServerInternalState<'a> array
         Statuses : ServerStatus array
+        AllMessages : Message<'a> list array
         UndeliveredMessages : (int * Message<'a>) list array
     }
 
 type UserPreferences =
     {
         LeaderUnderConsideration : int<ServerId>
+        ShowConsumedMessages : bool
     }
 
 type UiBackingState<'a> =
@@ -33,6 +35,7 @@ type UiElements =
         ClientDataServerField : Browser.Types.HTMLInputElement
         HeartbeatField : Browser.Types.HTMLInputElement
         SelectedLeaderId : Browser.Types.HTMLInputElement
+        ShowConsumedMessages : Browser.Types.HTMLInputElement
     }
 
 type RequiresPopulation =
@@ -73,6 +76,9 @@ module Ui =
         let selectedLeaderId =
             document.querySelector ".leader-select" :?> Browser.Types.HTMLInputElement
 
+        let showConsumed =
+            document.querySelector ".show-consumed" :?> Browser.Types.HTMLInputElement
+
         {
             Document = document
             ServerStatusTable = serverStatuses
@@ -84,6 +90,7 @@ module Ui =
             ClientDataServerField = clientDataServerField
             HeartbeatField = heartbeatField
             SelectedLeaderId = selectedLeaderId
+            ShowConsumedMessages = showConsumed
         }
 
     let reset (clusterSize : int) (ui : UiElements) : RequiresPopulation =
@@ -136,6 +143,8 @@ module Ui =
         ui.LogArea.border <- "1px"
         ui.LogArea.innerText <- ""
 
+        ui.ShowConsumedMessages.defaultChecked <- false
+
         {
             ServerStatusNodes = serverStatusNodes
         }
@@ -182,13 +191,18 @@ module Ui =
         let allButtons =
             [ 0 .. state.ClusterSize - 1 ]
             |> List.map (fun i ->
-                state.UndeliveredMessages.[i]
+                if userPrefs.ShowConsumedMessages then
+                    state.AllMessages.[i]
+                    |> List.indexed
+                else
+                    state.UndeliveredMessages.[i]
                 |> List.map (fun (messageId, message) ->
                     Button.create
                         document
                         (sprintf "Server %i, message %i: %O" i messageId message)
                         (fun button ->
-                            button.remove ()
+                            if not userPrefs.ShowConsumedMessages then
+                                button.remove ()
 
                             NetworkMessage (i * 1<ServerId>, messageId) |> perform
                         )
@@ -289,6 +303,12 @@ module Ui =
                     yield network.UndeliveredMessages (i * 1<ServerId>)
             |]
 
+        let allMessages =
+            [|
+                for i in 0 .. cluster.ClusterSize - 1 do
+                    yield network.AllInboundMessages (i * 1<ServerId>)
+            |]
+
         async {
             let! internalState = internalState
 
@@ -298,10 +318,12 @@ module Ui =
                     InternalState = internalState
                     Statuses = statuses
                     UndeliveredMessages = undeliveredMessages
+                    AllMessages = allMessages
                 }
         }
 
     let getUserPrefs (ui : UiElements) : UserPreferences =
         {
             LeaderUnderConsideration = ui.SelectedLeaderId.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
+            ShowConsumedMessages = ui.ShowConsumedMessages.checked
         }

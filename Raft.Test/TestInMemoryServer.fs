@@ -70,6 +70,7 @@ module TestInMemoryServer =
         // We sent a message to every other server; process them.
         for i in 1..4 do
             let server = i * 1<ServerId>
+
             (network.AllInboundMessages server).Length |> shouldEqual 1
 
             NetworkAction.NetworkMessage (server, 0)
@@ -83,6 +84,7 @@ module TestInMemoryServer =
 
         // (the messages we've already processed)
         (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 4
+
         (network.UndeliveredMessages 0<ServerId>).Length |> shouldEqual 0
 
         cluster.Servers.[0].State |> shouldEqual (ServerStatus.Leader 1<Term>)
@@ -164,10 +166,12 @@ module TestInMemoryServer =
 
         // Those two each sent a message to every other server.
         (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 1
+
         (network.AllInboundMessages 1<ServerId>).Length |> shouldEqual 1
 
         for i in 2..4 do
             let server = i * 1<ServerId>
+
             (network.AllInboundMessages server).Length |> shouldEqual 2
 
         while network.AllUndeliveredMessages () |> Seq.concat |> Seq.isEmpty |> not do
@@ -192,42 +196,56 @@ module TestInMemoryServer =
         for i in 2..4 do
             cluster.Servers.[i].State |> shouldEqual ServerStatus.Follower
 
-    type History = History of (int<ServerId> * int) list
+    type NetworkMessageSelection =
+        | NetworkMessageSelection of (int<ServerId> * int) list
 
-    let historyGen (clusterSize : int) =
+        member this.Length =
+            match this with
+            | NetworkMessageSelection h -> List.length h
+
+    let networkMessageSelectionGen (clusterSize : int) : Gen<NetworkMessageSelection> =
         gen {
             let! pile = Gen.choose (0, clusterSize - 1)
             let! entry = Arb.generate<int>
             return (pile * 1<ServerId>, abs entry)
         }
         |> Gen.listOf
-        |> Gen.map History
+        |> Gen.map NetworkMessageSelection
 
-    let apply (History history) (cluster : Cluster<'a>) (network : Network<'a>) : unit =
+    let apply (NetworkMessageSelection history) (cluster : Cluster<'a>) (network : Network<'a>) : unit =
         for pile, entry in history do
             let messages = network.AllInboundMessages pile
 
             if entry < messages.Length then
                 cluster.SendMessageDirectly pile messages.[entry]
 
+    let check (prop : Property) =
+        let config =
+            { Config.QuickThrowOnFailure with
+                MaxTest = 1000
+            }
+
+        Check.One (config, prop)
+
     [<Test>]
     let ``Startup sequence in prod, two timeouts at once, property-based: at most one leader is elected`` () =
-        let cluster, network = InMemoryCluster.make<int> 5
+        let property (history : NetworkMessageSelection) =
+            let cluster, network = InMemoryCluster.make<int> 5
 
-        NetworkAction.InactivityTimeout 0<ServerId>
-        |> NetworkAction.perform cluster network
+            NetworkAction.InactivityTimeout 0<ServerId>
+            |> NetworkAction.perform cluster network
 
-        NetworkAction.InactivityTimeout 1<ServerId>
-        |> NetworkAction.perform cluster network
+            NetworkAction.InactivityTimeout 1<ServerId>
+            |> NetworkAction.perform cluster network
 
-        // Those two each sent a message to every other server.
-        (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 1
-        (network.AllInboundMessages 1<ServerId>).Length |> shouldEqual 1
+            // Those two each sent a message to every other server.
+            (network.AllInboundMessages 0<ServerId>).Length |> shouldEqual 1
 
-        for i in 2..4 do
-            (network.AllInboundMessages (i * 1<ServerId>)).Length |> shouldEqual 2
+            (network.AllInboundMessages 1<ServerId>).Length |> shouldEqual 1
 
-        let property (history : History) =
+            for i in 2..4 do
+                (network.AllInboundMessages (i * 1<ServerId>)).Length |> shouldEqual 2
+
             apply history cluster network
 
             match cluster.Servers.[0].State, cluster.Servers.[1].State with
@@ -237,14 +255,14 @@ module TestInMemoryServer =
             for i in 2..4 do
                 cluster.Servers.[i].State |> shouldEqual ServerStatus.Follower
 
-        property
-        |> Prop.forAll (Arb.fromGen (historyGen 5))
-        |> Check.QuickThrowOnFailure
+        property |> Prop.forAll (Arb.fromGen (networkMessageSelectionGen 5)) |> check
 
     [<Test>]
-    let ``Heartbeat is rejected if an update hasn't propagated`` () =
+    let ``Data can propagate from the leader`` () =
         let clusterSize = 5
         let cluster, network = InMemoryCluster.make<byte> clusterSize
+
+        let mutable replyChannel = None
 
         let startupSequence =
             [
@@ -269,15 +287,11 @@ module TestInMemoryServer =
                 NetworkAction.NetworkMessage (1<ServerId>, 5)
                 NetworkAction.NetworkMessage (1<ServerId>, 6)
                 NetworkAction.NetworkMessage (1<ServerId>, 7)
-                // Submit data to leader, then heartbeat leader, and process heartbeat on another node.
-                // This should come through as "follower did not apply leader entry".
-                // (This is correct: the network has effectively dropped all the leader's AppendEntries messages,
-                // and the protocol has correctly allowed the followers to recognise that their logs are inconsistent
-                // with the leader's.)
-                NetworkAction.ClientRequest (1<ServerId>, byte 3, printfn "processed: %O")
-                NetworkAction.Heartbeat 1<ServerId>
+                // Submit data to leader. This has the effect of heartbeating the other
+                // nodes, with a heartbeat that contains the new data.
+                NetworkAction.ClientRequest (1<ServerId>, byte 3, (fun s -> replyChannel <- Some s))
 
-                // Deliver the heartbeat messages.
+                // Deliver the data messages.
                 NetworkAction.NetworkMessage (0<ServerId>, 2)
                 NetworkAction.NetworkMessage (2<ServerId>, 2)
                 NetworkAction.NetworkMessage (3<ServerId>, 2)
@@ -287,7 +301,9 @@ module TestInMemoryServer =
         for action in startupSequence do
             NetworkAction.perform cluster network action
 
-        // The servers have all rejected the heartbeat.
+        replyChannel |> Option.get |> shouldEqual ClientReply.Acknowledged
+
+        // The servers have all accepted the data.
         network.UndeliveredMessages 1<ServerId>
         |> List.map (fun (_index, message) ->
             match message with
@@ -297,23 +313,184 @@ module TestInMemoryServer =
         |> shouldEqual
             [
                 {
-                    Success = None
+                    Success = Some 1<LogIndex>
                     Follower = 0<ServerId>
                     FollowerTerm = 1<Term>
                 }
                 {
-                    Success = None
+                    Success = Some 1<LogIndex>
                     Follower = 2<ServerId>
                     FollowerTerm = 1<Term>
                 }
                 {
-                    Success = None
+                    Success = Some 1<LogIndex>
                     Follower = 3<ServerId>
                     FollowerTerm = 1<Term>
                 }
                 {
-                    Success = None
+                    Success = Some 1<LogIndex>
                     Follower = 4<ServerId>
                     FollowerTerm = 1<Term>
                 }
             ]
+
+    let freeze<'a> (cluster : Cluster<'a>) =
+        List.init
+            cluster.ClusterSize
+            (fun i ->
+                let i = i * 1<ServerId>
+                Async.RunSynchronously (cluster.GetCurrentInternalState i), cluster.Status i
+            )
+
+    let replay<'a> (ValidHistory history : ValidHistory<'a>) (cluster : Cluster<'a>) (network : Network<'a>) : unit =
+        for h in history do
+            NetworkAction.perform cluster network h
+
+    [<Test>]
+    let ``History can be replayed`` () =
+        let clusterSize = 5
+
+        let property (history : ValidHistory<byte>) =
+            let firstTime =
+                let cluster, network = InMemoryCluster.make<byte> clusterSize
+                replay history cluster network
+                freeze cluster
+
+            let secondTime =
+                let cluster, network = InMemoryCluster.make<byte> clusterSize
+                replay history cluster network
+                freeze cluster
+
+            firstTime = secondTime
+
+        property |> Prop.forAll (ValidHistory.arb clusterSize) |> check
+
+
+    [<Test>]
+    let ``There is never more than one leader in the same term`` () =
+        let clusterSize = 5
+
+        let property (history : ValidHistory<byte>) : bool =
+            let cluster, network = InMemoryCluster.make<byte> clusterSize
+            replay history cluster network
+
+            let leaders =
+                freeze cluster
+                |> List.choose (fun (_, status) ->
+                    match status with
+                    | ServerStatus.Leader term -> Some term
+                    | _ -> None
+                )
+
+            List.distinct leaders = leaders
+
+        property |> Prop.forAll (ValidHistory.arb clusterSize) |> check
+
+    let duplicationProperty<'a when 'a : equality>
+        (clusterSize : int)
+        (beforeDuplication : ValidHistory<'a>, afterDuplication : ValidHistory<'a>)
+        : bool =
+        let withoutDuplicate =
+            let cluster, network = InMemoryCluster.make<'a> clusterSize
+            replay beforeDuplication cluster network
+            freeze cluster
+
+        let withDuplicate =
+            let cluster, network = InMemoryCluster.make<'a> clusterSize
+            replay afterDuplication cluster network
+            freeze cluster
+
+        withDuplicate = withoutDuplicate
+
+    let possibleDuplicates<'a> (history : NetworkAction<'a> list) : (int * NetworkAction<'a>) list =
+        history
+        |> List.indexed
+        |> List.filter (fun (_, action) ->
+            match action with
+            | NetworkAction.DropMessage _ -> true
+            | NetworkAction.Heartbeat _ -> true
+            | NetworkAction.NetworkMessage _ -> true
+            | NetworkAction.InactivityTimeout _ ->
+                // This starts a new term, so is not safe to repeat.
+                false
+            | NetworkAction.ClientRequest _ ->
+                // Clients repeating requests may of course change state!
+                false
+        )
+
+    let allDuplicatedHistories<'a>
+        (clusterSize : int)
+        (ValidHistory historyList : ValidHistory<'a> as history)
+        : _ list =
+        let duplicateCandidates = possibleDuplicates historyList
+
+        duplicateCandidates
+        |> List.collect (fun (index, itemToDuplicate) ->
+            [ index .. historyList.Length ]
+            |> List.choose (fun insertIndex ->
+                List.insertAt insertIndex itemToDuplicate historyList
+                |> ValidHistory.validate clusterSize
+                |> Option.map (fun withDuplicate -> history, withDuplicate)
+            )
+        )
+
+    let rec withDuplicateGen<'a> (clusterSize : int) : Gen<ValidHistory<'a> * ValidHistory<'a>> =
+        gen {
+            let! history = ValidHistory.gen clusterSize
+            let allDuplicatedHistories = allDuplicatedHistories<'a> clusterSize history
+
+            match allDuplicatedHistories with
+            | [] -> return! withDuplicateGen clusterSize
+            | x -> return! Gen.elements x
+        }
+
+    let duplicationArb<'a> (clusterSize : int) : Arbitrary<ValidHistory<'a> * ValidHistory<'a>> =
+        { new Arbitrary<_>() with
+            member _.Generator = withDuplicateGen<'a> clusterSize
+
+            member _.Shrinker ((before, _withDuplicate)) =
+                ValidHistory.shrink<'a> clusterSize before
+                |> Seq.collect (allDuplicatedHistories clusterSize)
+        }
+
+(*
+    TODO: the following tests are borked; see the "specific example" for why.
+    [<Test>]
+    let ``Duplicate messages don't change network state`` () =
+        let clusterSize = 5
+
+        duplicationProperty<byte> clusterSize
+        |> Prop.forAll (duplicationArb clusterSize)
+        |> check
+
+    [<Test>]
+    let ``Specific example`` () =
+        let clusterSize = 5
+
+        let history =
+            [
+                InactivityTimeout 4<ServerId>
+                InactivityTimeout 3<ServerId>
+                NetworkMessage (0<ServerId>, 1)
+                InactivityTimeout 4<ServerId>
+                NetworkMessage (3<ServerId>, 2)
+            ]
+            |> ValidHistory.validate<byte> clusterSize
+            |> Option.get
+
+        let withDuplicate =
+            [
+                InactivityTimeout 4<ServerId>
+                InactivityTimeout 3<ServerId>
+                NetworkMessage (0<ServerId>, 1)
+                NetworkMessage (0<ServerId>, 1)
+                InactivityTimeout 4<ServerId>
+                // TODO: this is the problem, 2 no longer refers to the
+                // same
+                NetworkMessage (3<ServerId>, 2)
+            ]
+            |> ValidHistory.validate<byte> clusterSize
+            |> Option.get
+
+        duplicationProperty clusterSize (history, withDuplicate) |> shouldEqual true
+    *)

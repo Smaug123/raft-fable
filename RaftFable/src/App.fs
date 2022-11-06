@@ -70,6 +70,7 @@ module App =
             NetworkAction.NetworkMessage (0<ServerId>, 2)
             NetworkAction.NetworkMessage (1<ServerId>, 6)
         ]
+        |> List.truncate 0
         |> fun s -> (fullyRerender cluster network, s)
         ||> List.fold (fun (inPromise : Promise<unit>) action ->
             promise {
@@ -118,3 +119,5 @@ module App =
                 NetworkAction.ClientRequest (server, data, printfn "%O")
                 |> perform cluster network
             )
+
+    ui.ShowConsumedMessages.onchange <- fun _event -> fullyRerender cluster network

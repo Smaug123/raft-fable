@@ -8,6 +8,7 @@
 
     <ItemGroup>
         <Compile Include="Logger.fs" />
+        <Compile Include="ValidHistory.fs" />
         <Compile Include="TestInMemoryServer.fs" />
         <Compile Include="TestInMemoryPersistentState.fs" />
         <Compile Include="TestServer.fs" />
