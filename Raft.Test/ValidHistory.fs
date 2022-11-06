@@ -3,7 +3,7 @@ namespace Raft.Test
 open Raft
 open FsCheck
 
-type ValidHistory<'a> = ValidHistory of NetworkAction<'a> list
+type ValidHistory<'a> = | ValidHistory of NetworkAction<'a> list
 
 [<RequireQualifiedAccess>]
 module ValidHistory =
