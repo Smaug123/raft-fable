@@ -192,8 +192,7 @@ module Ui =
             [ 0 .. state.ClusterSize - 1 ]
             |> List.map (fun i ->
                 if userPrefs.ShowConsumedMessages then
-                    state.AllMessages.[i]
-                    |> List.indexed
+                    state.AllMessages.[i] |> List.indexed
                 else
                     state.UndeliveredMessages.[i]
                 |> List.map (fun (messageId, message) ->
@@ -325,5 +324,5 @@ module Ui =
     let getUserPrefs (ui : UiElements) : UserPreferences =
         {
             LeaderUnderConsideration = ui.SelectedLeaderId.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
-            ShowConsumedMessages = ui.ShowConsumedMessages.checked
+            ShowConsumedMessages = ui.ShowConsumedMessages.``checked``
         }
