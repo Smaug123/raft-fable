@@ -9,7 +9,7 @@ module App =
 
     let clusterSize = 5
 
-    let ui = Ui.initialise document clusterSize
+    let ui = Ui.initialise document
 
     let rec fullyRerender<'a> (cluster : Cluster<'a>) (network : Network<'a>) : Promise<unit> =
         let prefs = Ui.getUserPrefs ui

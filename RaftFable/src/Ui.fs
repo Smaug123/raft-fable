@@ -46,7 +46,7 @@ type RequiresPopulation =
 [<RequireQualifiedAccess>]
 module Ui =
 
-    let initialise (document : Browser.Types.Document) (clusterSize : int) : UiElements =
+    let initialise (document : Browser.Types.Document) : UiElements =
         let serverStatuses =
             document.querySelector ".server-statuses" :?> Browser.Types.HTMLTableElement
 
@@ -57,9 +57,6 @@ module Ui =
 
         let leaderStateTable =
             document.querySelector ".leader-state-table" :?> Browser.Types.HTMLTableElement
-
-        let timeoutButton =
-            document.querySelector ".timeout-button" :?> Browser.Types.HTMLButtonElement
 
         let timeoutField =
             document.querySelector ".timeout-text" :?> Browser.Types.HTMLInputElement
