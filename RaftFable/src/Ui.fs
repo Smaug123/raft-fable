@@ -151,7 +151,8 @@ module Ui =
         (document : Browser.Types.Document)
         (ui : UiElements)
         (state : UiBackingState<'a>)
-        : unit =
+        : unit
+        =
         let userPrefs = state.UserPreferences
         let state = state.ClusterState
 

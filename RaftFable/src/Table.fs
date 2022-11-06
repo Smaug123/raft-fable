@@ -7,7 +7,8 @@ module Table =
         (document : Browser.Types.Document)
         (headings : string list)
         (table : Browser.Types.HTMLTableElement)
-        : unit =
+        : unit
+        =
         let row = document.createElement "tr" :?> Browser.Types.HTMLTableRowElement
 
         for heading in headings do
@@ -22,7 +23,8 @@ module Table =
         (document : Browser.Types.Document)
         (elements : seq<#Browser.Types.Node option>)
         (table : Browser.Types.HTMLTableElement)
-        : Browser.Types.HTMLTableRowElement =
+        : Browser.Types.HTMLTableRowElement
+        =
         let row = document.createElement "tr" :?> Browser.Types.HTMLTableRowElement
 
         for col in elements do

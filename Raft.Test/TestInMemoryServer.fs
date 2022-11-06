@@ -389,7 +389,8 @@ module TestInMemoryServer =
     let duplicationProperty<'a when 'a : equality>
         (clusterSize : int)
         (beforeDuplication : ValidHistory<'a>, afterDuplication : ValidHistory<'a>)
-        : bool =
+        : bool
+        =
         let withoutDuplicate =
             let cluster, network = InMemoryCluster.make<'a> clusterSize
             replay beforeDuplication cluster network
@@ -421,7 +422,8 @@ module TestInMemoryServer =
     let allDuplicatedHistories<'a>
         (clusterSize : int)
         (ValidHistory historyList : ValidHistory<'a> as history)
-        : _ list =
+        : _ list
+        =
         let duplicateCandidates = possibleDuplicates historyList
 
         duplicateCandidates
