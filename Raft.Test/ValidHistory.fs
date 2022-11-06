@@ -34,7 +34,12 @@ module ValidHistory =
             | NetworkAction.ClientRequest _ -> return! networkActionGenNoClientRequests clusterSize
         }
 
-    let private historyGenOfLength<'a> (clusterSize : int) (len : int) : Gen<NetworkAction<'a> list> =
+    let private historyGenOfLength<'a>
+        (elementGen : Gen<'a>)
+        (clusterSize : int)
+        (len : int)
+        : Gen<NetworkAction<'a> list>
+        =
         let cluster, network = InMemoryCluster.make<'a> clusterSize
         // Note: takes a reversed list.
         let permissibleNext () : NetworkAction<'a> list =
@@ -52,21 +57,32 @@ module ValidHistory =
                     yield NetworkAction.InactivityTimeout server
             ]
 
+        let clientRequestGen =
+            gen {
+                let! element = elementGen
+                let! id = Gen.choose (0, clusterSize - 1)
+                return NetworkAction.ClientRequest (id * 1<ServerId>, element)
+            }
+
         let rec go (len : int) =
             gen {
                 if len = 0 then
                     return []
                 else
                     let! smaller = go (len - 1)
-                    let! next = Gen.elements (permissibleNext ())
+
+                    let! next =
+                        clientRequestGen :: List.replicate 5 (Gen.elements (permissibleNext ()))
+                        |> Gen.oneof
+
                     NetworkAction.perform cluster network next
                     return next :: smaller
             }
 
         go (abs len)
 
-    let gen<'a> (clusterSize : int) : Gen<ValidHistory<'a>> =
-        historyGenOfLength<'a> clusterSize
+    let gen<'a> (elementGen : Gen<'a>) (clusterSize : int) : Gen<ValidHistory<'a>> =
+        historyGenOfLength<'a> elementGen clusterSize
         |> Gen.sized
         |> Gen.map (List.rev >> ValidHistory)
 
@@ -100,9 +116,9 @@ module ValidHistory =
 
         Seq.concat [ removeOne ; shrinkMessageId ]
 
-    let arb<'a> (clusterSize : int) =
+    let arb<'a> (elementGen : Gen<'a>) (clusterSize : int) =
         { new Arbitrary<ValidHistory<'a>>() with
-            override _.Generator = gen clusterSize
+            override _.Generator = gen elementGen clusterSize
 
             override _.Shrinker history = shrink clusterSize history
         }

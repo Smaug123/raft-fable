@@ -359,7 +359,9 @@ module TestInMemoryServer =
 
             firstTime = secondTime
 
-        property |> Prop.forAll (ValidHistory.arb clusterSize) |> check
+        property
+        |> Prop.forAll (ValidHistory.arb (Arb.Default.Byte().Generator) clusterSize)
+        |> check
 
 
     [<Test>]
@@ -380,7 +382,9 @@ module TestInMemoryServer =
 
             List.distinct leaders = leaders
 
-        property |> Prop.forAll (ValidHistory.arb clusterSize) |> check
+        property
+        |> Prop.forAll (ValidHistory.arb (Arb.Default.Byte().Generator) clusterSize)
+        |> check
 
     let duplicationProperty<'a when 'a : equality>
         (clusterSize : int)
@@ -432,19 +436,19 @@ module TestInMemoryServer =
             )
         )
 
-    let rec withDuplicateGen<'a> (clusterSize : int) : Gen<ValidHistory<'a> * ValidHistory<'a>> =
+    let rec withDuplicateGen<'a> (elementGen : Gen<'a>) (clusterSize : int) : Gen<ValidHistory<'a> * ValidHistory<'a>> =
         gen {
-            let! history = ValidHistory.gen clusterSize
+            let! history = ValidHistory.gen elementGen clusterSize
             let allDuplicatedHistories = allDuplicatedHistories<'a> clusterSize history
 
             match allDuplicatedHistories with
-            | [] -> return! withDuplicateGen clusterSize
+            | [] -> return! withDuplicateGen elementGen clusterSize
             | x -> return! Gen.elements x
         }
 
-    let duplicationArb<'a> (clusterSize : int) : Arbitrary<ValidHistory<'a> * ValidHistory<'a>> =
+    let duplicationArb<'a> (elementGen : Gen<'a>) (clusterSize : int) : Arbitrary<ValidHistory<'a> * ValidHistory<'a>> =
         { new Arbitrary<_>() with
-            member _.Generator = withDuplicateGen<'a> clusterSize
+            member _.Generator = withDuplicateGen<'a> elementGen clusterSize
 
             member _.Shrinker ((before, _withDuplicate)) =
                 ValidHistory.shrink<'a> clusterSize before
@@ -458,7 +462,7 @@ module TestInMemoryServer =
         let clusterSize = 5
 
         duplicationProperty<byte> clusterSize
-        |> Prop.forAll (duplicationArb clusterSize)
+        |> Prop.forAll (duplicationArb (Arb.Default.Byte().Generator) clusterSize)
         |> check
 
     [<Test>]
