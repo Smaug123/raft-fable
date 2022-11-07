@@ -11,6 +11,10 @@ module App =
 
     let ui = Ui.initialise document
 
+    let handleRegisterClientResponse (response : RegisterClientResponse) : unit = printfn "%O" response
+
+    let handleClientResponse (response : ClientResponse) : unit = printfn "%O" response
+
     let rec fullyRerender<'a>
         (parse : string -> Result<'a, string>)
         (userPrefs : UserPreferences<'a> ref)
@@ -18,7 +22,8 @@ module App =
         (network : Network<'a>)
         : Promise<unit>
         =
-        userPrefs.Value <- Ui.getUserPrefs<'a> parse cluster.ClusterSize ui
+        userPrefs.Value <-
+            Ui.getUserPrefs<'a> parse handleRegisterClientResponse handleClientResponse cluster.ClusterSize ui
 
         Ui.freezeState cluster network
         |> Async.StartAsPromise
@@ -57,7 +62,7 @@ module App =
         | true, v -> Ok v
 
     let userPrefs : UserPreferences<byte> ref =
-        ref (Ui.getUserPrefs parseByte clusterSize ui)
+        ref (Ui.getUserPrefs parseByte handleRegisterClientResponse handleClientResponse clusterSize ui)
 
     let mutable cluster, network = InMemoryCluster.make<byte> clusterSize
 
@@ -105,7 +110,7 @@ module App =
         cluster <- newCluster
         network <- newNetwork
 
-        userPrefs.Value <- Ui.getUserPrefs parseByte clusterSize ui
+        userPrefs.Value <- Ui.getUserPrefs parseByte handleRegisterClientResponse handleClientResponse clusterSize ui
 
         startupActions
         |> fun s -> (fullyRerender parseByte userPrefs cluster network, s)
@@ -151,11 +156,31 @@ module App =
     clientDataSubmitButton.onclick <-
         fun _event ->
             let server =
-                ui.ClientDataServerField.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
+                ui.ClientData.ClientDataServerField.valueAsNumber |> int |> (*) 1<ServerId>
 
-            let data = ui.ClientDataField.valueAsNumber |> byte
+            let data = ui.ClientData.ClientDataField.valueAsNumber |> byte
+            let clientId = ui.ClientData.ClientIdField.valueAsNumber |> int |> (*) 1<ClientId>
 
-            NetworkAction.ClientRequest (server, data)
+            let clientSequence =
+                ui.ClientData.ClientSequenceField.valueAsNumber |> int |> (*) 1<ClientSequence>
+
+            // TODO: store the reply and display it
+            NetworkAction.ClientRequest (
+                server,
+                ClientRequest.ClientRequest (clientId, clientSequence, data, handleClientResponse)
+            )
+
+            |> perform parseByte userPrefs cluster network
+
+    let clientCreateButton =
+        document.querySelector ".client-create" :?> Browser.Types.HTMLButtonElement
+
+    clientCreateButton.onclick <-
+        fun _event ->
+            let server = ui.ClientCreateServer.valueAsNumber |> int |> (*) 1<ServerId>
+
+            // TODO: store the reply and display it
+            NetworkAction.ClientRequest (server, ClientRequest.RegisterClient handleRegisterClientResponse)
             |> perform parseByte userPrefs cluster network
 
     ui.ShowConsumedMessages.onchange <- fun _event -> fullyRerender parseByte userPrefs cluster network

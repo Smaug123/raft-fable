@@ -262,6 +262,20 @@ module TestInMemoryServer =
         let clusterSize = 5
         let cluster, network = InMemoryCluster.make<byte> clusterSize
 
+        let registeredSuccessfully = ref 0
+
+        let registerResponse (response : RegisterClientResponse) : unit =
+            response |> shouldEqual (RegisterClientResponse.Success 1<ClientId>)
+            Interlocked.Increment registeredSuccessfully |> ignore
+
+        let respondedSuccessfully = ref 0
+
+        let requestResponse (response : ClientResponse) : unit =
+            response
+            |> shouldEqual (ClientResponse.Success (1<ClientId>, 1<ClientSequence>))
+
+            Interlocked.Increment registeredSuccessfully |> ignore
+
         let startupSequence =
             [
                 NetworkAction.InactivityTimeout 1<ServerId>
@@ -287,7 +301,11 @@ module TestInMemoryServer =
                 NetworkAction.NetworkMessage (1<ServerId>, 7)
                 // Submit data to leader. This has the effect of heartbeating the other
                 // nodes, with a heartbeat that contains the new data.
-                NetworkAction.ClientRequest (1<ServerId>, byte 3)
+                NetworkAction.ClientRequest (1<ServerId>, ClientRequest.RegisterClient registerResponse)
+                NetworkAction.ClientRequest (
+                    1<ServerId>,
+                    ClientRequest.ClientRequest (1<ClientId>, 1<ClientSequence>, byte 3, requestResponse)
+                )
 
                 // Deliver the data messages.
                 NetworkAction.NetworkMessage (0<ServerId>, 2)
@@ -329,6 +347,9 @@ module TestInMemoryServer =
                     FollowerTerm = 1<Term>
                 }
             ]
+
+        respondedSuccessfully.Value |> shouldEqual 1
+        registeredSuccessfully.Value |> shouldEqual 1
 
     let freeze<'a> (cluster : Cluster<'a>) =
         List.init

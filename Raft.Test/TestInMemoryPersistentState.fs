@@ -15,18 +15,24 @@ module TestInMemoryPersistentState =
         s.CurrentLogIndex |> shouldEqual 0<LogIndex>
 
         for i in -2 .. 10 do
-            s.GetLogEntry (i * 1<LogIndex>) |> shouldEqual None
+            match s.GetLogEntry (i * 1<LogIndex>) with
+            | Some _ -> failwith "should not have had a log entry"
+            | None -> ()
 
         s.CurrentTerm |> shouldEqual 0<Term>
         s.VotedFor |> shouldEqual None
 
-        s.GetLastLogEntry () |> shouldEqual None
+        match s.GetLastLogEntry () with
+        | Some _ -> failwith "should not have had a log entry"
+        | None -> ()
 
     let ofList<'a> (xs : ('a * int<Term>) list) : InMemoryPersistentState<'a> =
         let s = InMemoryPersistentState<'a> ()
 
         for x, term in xs do
-            (s :> IPersistentState<_>).AppendToLog x term
+            (s :> IPersistentState<_>).AppendToLog
+                (LogEntry.ClientEntry (x, 1<ClientId>, 1<ClientSequence>, ignore))
+                term
 
         s
 
@@ -38,26 +44,39 @@ module TestInMemoryPersistentState =
 
     [<Test>]
     let ``Nonzero truncation followed by Get succeeds`` () =
-        let property (truncate : int<LogIndex>) (xs : (int * int<Term>) list) : bool =
+        let property (truncate : int<LogIndex>) (xs : (byte * int<Term>) list) : bool =
             let truncate = abs truncate + 1<LogIndex>
             let uut = ofList xs
-            let oldLog = uut.GetLog ()
+
+            let oldLog =
+                uut.GetLog ()
+                |> List.map (fun (entry, term) -> SerialisedLogEntry.Make entry, term)
 
             match (uut :> IPersistentState<_>).GetLogEntry truncate with
             | None ->
                 (uut :> IPersistentState<_>).TruncateLog truncate
-                uut.GetLog () = oldLog
+
+                let newLog =
+                    uut.GetLog ()
+                    |> List.map (fun (entry, term) -> SerialisedLogEntry.Make entry, term)
+
+                newLog = oldLog
             | Some (itemStored, entry) ->
                 (uut :> IPersistentState<_>).TruncateLog truncate
 
-                (uut :> IPersistentState<_>).GetLastLogEntry () = Some (
-                    itemStored,
-                    {
-                        Index = truncate
-                        Term = entry
-                    }
-                )
-                && isPrefix (uut.GetLog ()) oldLog
+                let newLog =
+                    uut.GetLog ()
+                    |> List.map (fun (entry, term) -> SerialisedLogEntry.Make entry, term)
+
+                let retrieved, logEntry =
+                    Option.get ((uut :> IPersistentState<_>).GetLastLogEntry ())
+
+                logEntry = {
+                               Index = truncate
+                               Term = entry
+                           }
+                && (SerialisedLogEntry.Make retrieved = SerialisedLogEntry.Make itemStored)
+                && isPrefix newLog oldLog
                 && (uut :> IPersistentState<_>).CurrentLogIndex = truncate
 
         Check.QuickThrowOnFailure property
@@ -69,13 +88,20 @@ module TestInMemoryPersistentState =
             let uut = ofList xs
 
             // It's not meaningful to take the 0th element
-            (uut :> IPersistentState<_>).GetLogEntry truncate |> shouldEqual None
+            match (uut :> IPersistentState<_>).GetLogEntry truncate with
+            | Some _ -> failwith "should not have had any elements"
+            | None -> ()
 
             (uut :> IPersistentState<_>).TruncateLog truncate
 
-            uut.GetLog () |> shouldEqual []
+            match uut.GetLog () with
+            | [] -> ()
+            | _ -> failwith "should not have had log entries"
 
             let uut = uut :> IPersistentState<_>
-            uut.GetLastLogEntry () = None && uut.CurrentLogIndex = 0<LogIndex>
+
+            match uut.GetLastLogEntry () with
+            | Some _ -> false
+            | None -> uut.CurrentLogIndex = 0<LogIndex>
 
         Check.QuickThrowOnFailure property

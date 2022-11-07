@@ -23,6 +23,7 @@
         </table>
     </div>
     <h2>Interaction</h2>
+    <h3>Servers</h3>
     <form>
         <input type="number" class="timeout-text" />
         <button id="timeout-button" class="timeout-button" type="button">Inactivity timeout server</button>
@@ -31,12 +32,23 @@
         <input type="number" class="heartbeat-text" />
         <button class="heartbeat-button" type="button">Heartbeat server</button>
     </form>
+    <h3>Clients</h3>
+    <div class="clients"></div>
     <form>
         <label for="client-server-selection">Server to send to</label>
         <input type="number" id="client-server-selection" class="client-server-selection" />
         <label for="client-data">Data to send</label>
         <input type="number" id="client-data" class="client-data" />
+        <label for="client-id">Client to send from</label>
+        <input type="number" id="client-id" class="client-id" />
+        <label for="client-sequence">Sequence number for this client</label>
+        <input type="number" id="client-sequence" class="client-sequence" />
         <button class="client-data-submit" type="button">Submit client data</button>
+    </form>
+    <form>
+        <label for="create-client-server">Server to send a client-create request</label>
+        <input type="number" id="create-client-server" class="create-client-server" />
+        <button class="client-create" type="button">Create client</button>
     </form>
     <h2>Messages in flight</h2>
     <form>

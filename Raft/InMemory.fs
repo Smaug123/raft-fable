@@ -105,7 +105,7 @@ type NetworkAction<'a> =
     | InactivityTimeout of int<ServerId>
     | NetworkMessage of int<ServerId> * int
     | DropMessage of int<ServerId> * int
-    | ClientRequest of int<ServerId> * 'a
+    | ClientRequest of int<ServerId> * ClientRequest<'a>
     | Heartbeat of int<ServerId>
 
 [<RequireQualifiedAccess>]
@@ -172,35 +172,65 @@ module NetworkAction =
         else
             sprintf "Cannot heartbeat a non-leader (%i)." serverId |> Error
 
-    let private getClientData<'a>
+    let private getNewClientTarget<'a> (clusterSize : int) (serverId : string) : Result<int<ServerId>, string> =
+        match Int32.TryParse serverId with
+        | false, _ -> sprintf "Expected an int for a server ID, got '%s'" serverId |> Error
+        | true, serverId ->
+
+        if serverId >= clusterSize || serverId < 0 then
+            sprintf "Server ID must be between 0 and %i inclusive, got %i." (clusterSize - 1) serverId
+            |> Error
+        else
+            Ok (serverId * 1<ServerId>)
+
+    let private getClientSubmitData<'a>
         (parse : string -> Result<'a, string>)
         (clusterSize : int)
         (s : string)
-        : Result<int<ServerId> * 'a, string>
+        : Result<int<ServerId> * int<ClientId> * int<ClientSequence> * 'a, string>
         =
         match s.Split ',' |> List.ofArray with
-        | serverId :: (_ :: _ as rest) ->
+        | serverId :: clientId :: clientSequenceNumber :: (_ :: _ as rest) ->
             let rest = String.concat "," rest |> fun s -> s.TrimStart ()
 
-            match Int32.TryParse serverId with
-            | true, serverId ->
-                if serverId >= clusterSize || serverId < 0 then
-                    sprintf "Server ID must be between 0 and %i inclusive, got %i." (clusterSize - 1) serverId
-                    |> Error
-                else
-
-                match parse rest with
-                | Ok b -> Ok (serverId * 1<ServerId>, b)
-                | Error e -> sprintf "Failed to parse client data: %s" e |> Error
+            match Int32.TryParse (serverId.Trim ()) with
             | false, _ ->
                 sprintf "Server ID expected as first comma-separated component, got '%s'." serverId
                 |> Error
-        | _ -> sprintf "Expected a comma in client data string, got '%s'" s |> Error
+            | true, serverId ->
+
+            if serverId >= clusterSize || serverId < 0 then
+                sprintf "Server ID must be between 0 and %i inclusive, got %i." (clusterSize - 1) serverId
+                |> Error
+            else
+
+            match Int32.TryParse (clientId.Trim ()) with
+            | false, _ ->
+                sprintf "Client ID expected as second comma-separated component, got '%s'." clientId
+                |> Error
+            | true, clientId ->
+
+            match Int32.TryParse (clientSequenceNumber.Trim ()) with
+            | false, _ ->
+                sprintf
+                    "Client sequence number expected as third comma-separated component, got '%s'."
+                    clientSequenceNumber
+                |> Error
+            | true, clientSequenceNumber ->
+
+            match parse rest with
+            | Ok b -> Ok (serverId * 1<ServerId>, clientId * 1<ClientId>, clientSequenceNumber * 1<ClientSequence>, b)
+            | Error e -> sprintf "Failed to parse client data: %s" e |> Error
+        | _ ->
+            sprintf "Expected serverId,clientId,clientSequenceNumber,data; got '%s'" s
+            |> Error
 
     /// Optionally also validates leaders against the input set of leaders.
     let tryParse<'a>
         (parse : string -> Result<'a, string>)
         (leaders : Set<int<ServerId>> option)
+        (handleRegisterClientResponse : RegisterClientResponse -> unit)
+        (handleClientDataResponse : ClientResponse -> unit)
         (clusterSize : int)
         (s : string)
         : Result<NetworkAction<'a>, string>
@@ -226,8 +256,17 @@ module NetworkAction =
                 | Ok h -> Heartbeat h |> Ok
                 | Error e -> Error e
             | 'S' ->
-                match getClientData parse clusterSize (s.[1..].TrimStart ()) with
-                | Ok (server, data) -> ClientRequest (server, data) |> Ok
+                match getNewClientTarget clusterSize (s.[1..].TrimStart ()) with
+                | Ok target ->
+                    ClientRequest (target, ClientRequest.RegisterClient handleRegisterClientResponse)
+                    |> Ok
+                | Error e -> Error e
+            | 'R' ->
+                match getClientSubmitData parse clusterSize (s.[1..].TrimStart ()) with
+                | Ok (server, client, sequence, data) ->
+                    (server, ClientRequest.ClientRequest (client, sequence, data, handleClientDataResponse))
+                    |> ClientRequest
+                    |> Ok
                 | Error e -> Error e
             | c -> Error (sprintf "unexpected start char '%c'" c)
 
@@ -237,4 +276,6 @@ module NetworkAction =
         | NetworkAction.NetworkMessage (server, id) -> sprintf "m %i,%i" server id
         | NetworkAction.DropMessage (server, id) -> sprintf "d %i,%i" server id
         | NetworkAction.InactivityTimeout server -> sprintf "t %i" server
-        | NetworkAction.ClientRequest (server, data) -> sprintf "s %i,%O" server data
+        | NetworkAction.ClientRequest (server, ClientRequest.RegisterClient _) -> sprintf "s %i" server
+        | NetworkAction.ClientRequest (server, ClientRequest.ClientRequest (client, sequence, data, _)) ->
+            sprintf "r %i,%i,%i,%O" server client sequence data

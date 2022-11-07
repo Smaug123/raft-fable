@@ -57,12 +57,14 @@ module ValidHistory =
                     yield NetworkAction.InactivityTimeout server
             ]
 
+        (*
         let clientRequestGen =
             gen {
                 let! element = elementGen
                 let! id = Gen.choose (0, clusterSize - 1)
                 return NetworkAction.ClientRequest (id * 1<ServerId>, element)
             }
+        *)
 
         let rec go (len : int) =
             gen {
@@ -71,9 +73,11 @@ module ValidHistory =
                 else
                     let! smaller = go (len - 1)
 
-                    let! next =
+                    let! next = Gen.elements (permissibleNext ())
+                    (*
                         clientRequestGen :: List.replicate 5 (Gen.elements (permissibleNext ()))
                         |> Gen.oneof
+                        *)
 
                     NetworkAction.perform cluster network next
                     return next :: smaller

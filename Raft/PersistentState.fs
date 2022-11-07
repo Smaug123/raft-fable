@@ -6,15 +6,15 @@ type IPersistentState<'a> =
     abstract CurrentTerm : int<Term>
     /// If I know about an election in my CurrentTerm, who did I vote for during that election?
     abstract VotedFor : int<ServerId> option
-    abstract AppendToLog : 'a -> int<Term> -> unit
+    abstract AppendToLog : LogEntry<'a> -> int<Term> -> unit
 
     /// Truncate away the most recent entries of the log.
     /// If `GetLogEntry x` would succeed, and then we call `TruncateLog x`,
     /// then `GetLogEntry x` will still succeed (but `GetLogEntry (x + 1)` will not).
     abstract TruncateLog : int<LogIndex> -> unit
-    abstract GetLogEntry : int<LogIndex> -> ('a * int<Term>) option
+    abstract GetLogEntry : int<LogIndex> -> (LogEntry<'a> * int<Term>) option
     abstract CurrentLogIndex : int<LogIndex>
-    abstract GetLastLogEntry : unit -> ('a * LogEntry) option
+    abstract GetLastLogEntry : unit -> (LogEntry<'a> * LogEntryMetadata) option
     abstract AdvanceToTerm : int<Term> -> unit
     abstract IncrementTerm : unit -> unit
     abstract Vote : int<ServerId> -> unit
@@ -24,7 +24,7 @@ type IPersistentState<'a> =
 type InMemoryPersistentState<'a> () =
     let mutable currentTerm = 0
     let mutable votedFor : int<ServerId> option = None
-    let log = ResizeArray<'a * int<Term>> ()
+    let log = ResizeArray<LogEntry<'a> * int<Term>> ()
 
     member this.GetLog () = log |> List.ofSeq
 
@@ -45,7 +45,7 @@ type InMemoryPersistentState<'a> () =
             currentTerm <- term / 1<Term>
             votedFor <- None
 
-        member this.AppendToLog entry term = log.Add (entry, term)
+        member this.AppendToLog (entry : LogEntry<'a>) term = log.Add (entry, term)
 
         member this.TruncateLog position =
             let position = position / 1<LogIndex>
@@ -54,7 +54,7 @@ type InMemoryPersistentState<'a> () =
                 let position = if position < 0 then 0 else position
                 log.RemoveRange (position, log.Count - position)
 
-        member this.GetLastLogEntry () : ('a * LogEntry) option =
+        member this.GetLastLogEntry () : (LogEntry<'a> * LogEntryMetadata) option =
             if log.Count = 0 then
                 None
             else

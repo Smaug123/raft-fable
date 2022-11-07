@@ -1,7 +1,7 @@
 ﻿namespace Raft
 
 /// Server state which need not survive a server crash.
-type VolatileState =
+type VolatileState<'a> =
     {
         /// The index of the highest log entry we know is persisted to a majority of the cluster.
         // Why is it correct for this to be volatile?
@@ -9,13 +9,16 @@ type VolatileState =
         // we *don't* know that any of our log is reflected in the other nodes.
         // (We'll soon learn a better value of CommitIndex as we start receiving messages again.)
         CommitIndex : int<LogIndex>
+        /// TODO: do this, and model applying to state machine
         LastApplied : int<LogIndex>
+        Clients : Map<int<ClientId>, Map<int<ClientSequence>, 'a>>
     }
 
-    static member New : VolatileState =
+    static member New : VolatileState<'a> =
         {
             CommitIndex = 0<LogIndex>
             LastApplied = 0<LogIndex>
+            Clients = Map.empty
         }
 
 type LeaderState =
@@ -30,7 +33,7 @@ type LeaderState =
         MatchIndex : int<LogIndex> array
     }
 
-    static member New (clusterSize : int) (currentIndex : int<LogIndex>) : LeaderState =
+    static member New<'a> (clusterSize : int) (currentIndex : int<LogIndex>) : LeaderState =
         {
             // +1, because these are indexed from 1.
             ToSend = Array.create clusterSize (currentIndex + 1<LogIndex>)
@@ -71,7 +74,7 @@ type RequestVoteMessage =
     {
         CandidateTerm : int<Term>
         CandidateId : int<ServerId>
-        CandidateLastLogEntry : LogEntry option
+        CandidateLastLogEntry : LogEntryMetadata option
         ReplyChannel : RequestVoteReply -> unit
     }
 
@@ -109,11 +112,11 @@ type AppendEntriesMessage<'a> =
         /// I am your leader! This is me! (so everyone knows where to send clients to)
         LeaderId : int<ServerId>
         /// The entry immediately preceding the entry I'm sending you, so you can tell if we've got out of sync.
-        PrevLogEntry : LogEntry option
+        PrevLogEntry : LogEntryMetadata option
         /// Followers, append this entry to your log. (Or, if None, this is just a heartbeat.)
         /// It was determined at the given term - recall that we might need to bring a restarted node up to speed
         /// with what happened during terms that took place while it was down.
-        NewEntry : ('a * int<Term>) option
+        NewEntry : (LogEntry<'a> * int<Term>) option
         LeaderCommitIndex : int<LogIndex>
         /// TODO - we don't need this, the responder should just construct
         /// the appropriate Message and send it themselves
@@ -133,13 +136,27 @@ type AppendEntriesMessage<'a> =
             this.LeaderTerm
             this.LeaderCommitIndex
 
+type SerialisedLogEntry<'a> =
+    | SerialisedClientEntry of 'a * int<ClientId> * int<ClientSequence>
+    | SerialisedClientRegister
+
+    static member Make (entry : LogEntry<'a>) : SerialisedLogEntry<'a> =
+        match entry with
+        | ClientEntry (a, client, sequence, _) -> SerialisedClientEntry (a, client, sequence)
+        | RaftOverhead (NewClientRegistered _) -> SerialisedClientRegister
+
+    override this.ToString () =
+        match this with
+        | SerialisedClientRegister -> "<client registration>"
+        | SerialisedClientEntry (data, client, sequence) -> sprintf "Client %i (%i) puts data: %O" client sequence data
+
 /// A readout of the server's internal state, suitable for e.g. debugging tools.
 type ServerInternalState<'a> =
     {
         LogIndex : int<LogIndex>
         CurrentTerm : int<Term>
         CurrentVote : int<ServerId> option
-        Log : ('a * int<Term>) option list
+        Log : (SerialisedLogEntry<'a> * int<Term>) option list
         /// A clone of the leader state, if this is a leader.
         LeaderState : LeaderState option
     }
@@ -182,11 +199,15 @@ type Reply =
         | RequestVoteReply v -> v.ToString ()
         | AppendEntriesReply r -> r.ToString ()
 
+type ClientRequest<'a> =
+    | RegisterClient of (RegisterClientResponse -> unit)
+    | ClientRequest of int<ClientId> * int<ClientSequence> * 'a * (ClientResponse -> unit)
+
 [<RequireQualifiedAccess>]
 type Message<'a> =
     | Instruction of Instruction<'a>
     | Reply of Reply
-    | ClientRequest of 'a
+    | ClientRequest of ClientRequest<'a>
 
     override this.ToString () =
         match this with
@@ -270,7 +291,7 @@ type Server<'a>
         messageChannel : int<ServerId> -> Message<'a> -> unit
     )
     =
-    let mutable volatileState = VolatileState.New
+    let mutable volatileState = VolatileState<'a>.New
 
     let mutable currentType =
         ServerSpecialisation.Follower
@@ -567,10 +588,50 @@ type Server<'a>
                         | Some (_, term) -> term
 
                     if ourLogTerm = persistentState.CurrentTerm then
+                        let oldCommitIndex = volatileState.CommitIndex
+
                         volatileState <-
                             { volatileState with
                                 CommitIndex = maxLogAQuorumHasCommitted
                             }
+
+                        for i in (oldCommitIndex / 1<LogIndex> + 1) .. maxLogAQuorumHasCommitted / 1<LogIndex> do
+                            let i = i * 1<LogIndex>
+
+                            match persistentState.GetLogEntry i with
+                            | None ->
+                                failwith "Invariant violated. Leader does not have a log entry for a committed index."
+                            | Some (logEntry, _term) ->
+                                match logEntry with
+                                | LogEntry.ClientEntry (stored, client, sequence, replyChannel) ->
+                                    let newClients =
+                                        volatileState.Clients
+                                        |> Map.change
+                                            client
+                                            (fun messageLog ->
+                                                let messages =
+                                                    match messageLog with
+                                                    | None -> Map.empty
+                                                    | Some messageLog -> messageLog
+
+                                                messages |> Map.change sequence (fun _ -> Some stored) |> Some
+                                            )
+
+                                    volatileState <-
+                                        { volatileState with
+                                            Clients = newClients
+                                        }
+
+                                    replyChannel (ClientResponse.Success (client, sequence))
+                                | LogEntry.RaftOverhead (NewClientRegistered replyChannel) ->
+                                    let clientId = i / 1<LogIndex> * 1<ClientId>
+
+                                    volatileState <-
+                                        { volatileState with
+                                            Clients = volatileState.Clients |> Map.add clientId Map.empty
+                                        }
+
+                                    clientId |> RegisterClientResponse.Success |> replyChannel
 
         | RequestVoteReply requestVoteReply ->
             match currentType with
@@ -635,18 +696,34 @@ type Server<'a>
                             |> messageChannel (i * 1<ServerId>)
                 | ServerAction.Receive (Message.Instruction m) -> processMessage m
                 | ServerAction.Receive (Message.Reply r) -> processReply r
-                | ServerAction.Receive (Message.ClientRequest toAdd) ->
-                    match currentType with
-                    | ServerSpecialisation.Leader leaderState ->
-                        persistentState.AppendToLog toAdd persistentState.CurrentTerm
-                        //replyChannel ClientReply.Acknowledged
-                        emitHeartbeat leaderState
-                    | ServerSpecialisation.Follower followerState ->
-                        //replyChannel (ClientReply.Redirect followerState.CurrentLeader)
-                        ()
-                    | ServerSpecialisation.Candidate _ ->
-                        //replyChannel ClientReply.Dropped
-                        ()
+                | ServerAction.Receive (Message.ClientRequest request) ->
+                    match request with
+                    | ClientRequest.RegisterClient replyChannel ->
+                        match currentType with
+                        | ServerSpecialisation.Follower followerState ->
+                            replyChannel (RegisterClientResponse.NotLeader followerState.CurrentLeader)
+                        | ServerSpecialisation.Candidate _ -> replyChannel (RegisterClientResponse.NotLeader None)
+                        | ServerSpecialisation.Leader leaderState ->
+                            persistentState.AppendToLog
+                                (RaftOverhead (NewClientRegistered replyChannel))
+                                persistentState.CurrentTerm
+
+                            leaderState.MatchIndex.[me / 1<ServerId>] <- persistentState.CurrentLogIndex
+
+                            emitHeartbeat leaderState
+                    | ClientRequest.ClientRequest (client, sequenceNumber, toAdd, replyChannel) ->
+                        match currentType with
+                        | ServerSpecialisation.Leader leaderState ->
+                            persistentState.AppendToLog
+                                (LogEntry.ClientEntry (toAdd, client, sequenceNumber, replyChannel))
+                                persistentState.CurrentTerm
+
+                            leaderState.MatchIndex.[me / 1<ServerId>] <- persistentState.CurrentLogIndex
+
+                            emitHeartbeat leaderState
+                        | ServerSpecialisation.Follower followerState ->
+                            replyChannel (ClientResponse.NotLeader followerState.CurrentLeader)
+                        | ServerSpecialisation.Candidate _ -> replyChannel (ClientResponse.NotLeader None)
                 | ServerAction.Sync replyChannel -> replyChannel.Reply ()
                 | ServerAction.StateReadout replyChannel ->
                     {
@@ -659,7 +736,11 @@ type Server<'a>
                             | Some (_, last) ->
                                 List.init
                                     (last.Index / 1<LogIndex>)
-                                    (fun index -> persistentState.GetLogEntry (1<LogIndex> + index * 1<LogIndex>))
+                                    (fun index ->
+                                        match persistentState.GetLogEntry (1<LogIndex> + index * 1<LogIndex>) with
+                                        | None -> None
+                                        | Some (entry, term) -> (SerialisedLogEntry.Make entry, term) |> Some
+                                    )
                         LeaderState =
                             match currentType with
                             | ServerSpecialisation.Leader state -> state.Clone () |> Some
@@ -676,7 +757,7 @@ type Server<'a>
 #endif
         mailbox
 
-    member this.SendClientRequest (request : 'a) =
+    member this.SendClientRequest (request : ClientRequest<'a>) =
         mailbox.Post (ServerAction.Receive (Message.ClientRequest request))
 
     member this.TriggerInactivityTimeout () = mailbox.Post ServerAction.BeginElection

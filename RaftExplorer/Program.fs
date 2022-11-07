@@ -22,7 +22,7 @@ module Program =
 
     let rec getAction (leaders : Set<int<ServerId>>) (clusterSize : int) : NetworkAction<byte> =
         printf
-            "Enter action. Trigger [t]imeout <server id>, [h]eartbeat a leader <server id>, [d]rop message <server id, message id>, [s]ubmit data <server id, byte>, or allow [m]essage <server id, message id>: "
+            "Enter action. Trigger [t]imeout <server id>, [h]eartbeat a leader <server id>, [d]rop message <server id, message id>, establish new [s]ession <server id>, or allow [m]essage <server id, message id>: "
 
         let s =
             let rec go () =
@@ -36,7 +36,27 @@ module Program =
             | true, b -> Ok b
             | false, _ -> Error (sprintf "expected a byte, got '%s'" s)
 
-        match NetworkAction.tryParse parseByte (Some leaders) clusterSize s with
+        let handleRegister (response : RegisterClientResponse) : unit =
+            match response with
+            | RegisterClientResponse.Success i -> printfn "Client successfully registered, getting ID %i" i
+            | RegisterClientResponse.NotLeader hint ->
+                match hint with
+                | Some hint -> printfn "Client failed to register due to not asking a leader; try asking server %i" hint
+                | None -> printfn "Client failed to register due to not asking a leader."
+
+        let handleResponse (response : ClientResponse) : unit =
+            match response with
+            | ClientResponse.NotLeader hint ->
+                match hint with
+                | Some hint ->
+                    printfn "Client failed to send request due to not asking a leader; try asking server %i" hint
+                | None -> printfn "Client failed to send request due to not asking a leader."
+            | ClientResponse.SessionExpired ->
+                failwith "Client failed to send request due to expiry of session. This currently can't happen."
+            | ClientResponse.Success (client, sequence) ->
+                printfn "Raft has committed request from client %i with sequence number %i" client sequence
+
+        match NetworkAction.tryParse parseByte (Some leaders) handleRegister handleResponse clusterSize s with
         | Ok action -> action
         | Error e ->
             printfn "%s" e

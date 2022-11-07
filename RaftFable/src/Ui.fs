@@ -24,6 +24,14 @@ type UiBackingState<'a> =
         UserPreferences : UserPreferences<'a>
     }
 
+type ClientDataSection =
+    {
+        ClientDataField : Browser.Types.HTMLInputElement
+        ClientDataServerField : Browser.Types.HTMLInputElement
+        ClientIdField : Browser.Types.HTMLInputElement
+        ClientSequenceField : Browser.Types.HTMLInputElement
+    }
+
 type UiElements =
     {
         Document : Browser.Types.Document
@@ -32,12 +40,13 @@ type UiElements =
         MessageQueueArea : Browser.Types.HTMLTableElement
         LeaderStateTable : Browser.Types.HTMLTableElement
         TimeoutField : Browser.Types.HTMLInputElement
-        ClientDataField : Browser.Types.HTMLInputElement
-        ClientDataServerField : Browser.Types.HTMLInputElement
         HeartbeatField : Browser.Types.HTMLInputElement
         SelectedLeaderId : Browser.Types.HTMLInputElement
         ShowConsumedMessages : Browser.Types.HTMLInputElement
         ActionHistory : Browser.Types.HTMLTextAreaElement
+        ClientsList : Browser.Types.HTMLDivElement
+        ClientData : ClientDataSection
+        ClientCreateServer : Browser.Types.HTMLInputElement
     }
 
 type RequiresPopulation =
@@ -72,6 +81,12 @@ module Ui =
         let clientDataField =
             document.querySelector ".client-data" :?> Browser.Types.HTMLInputElement
 
+        let clientSequenceField =
+            document.querySelector ".client-sequence" :?> Browser.Types.HTMLInputElement
+
+        let clientIdField =
+            document.querySelector ".client-id" :?> Browser.Types.HTMLInputElement
+
         let selectedLeaderId =
             document.querySelector ".leader-select" :?> Browser.Types.HTMLInputElement
 
@@ -81,6 +96,19 @@ module Ui =
         let actionHistory =
             document.querySelector ".action-history" :?> Browser.Types.HTMLTextAreaElement
 
+        let clientsList = document.querySelector ".clients" :?> Browser.Types.HTMLDivElement
+
+        let clientCreateServer =
+            document.querySelector ".create-client-server" :?> Browser.Types.HTMLInputElement
+
+        let clientInfo =
+            {
+                ClientDataField = clientDataField
+                ClientDataServerField = clientDataServerField
+                ClientIdField = clientIdField
+                ClientSequenceField = clientSequenceField
+            }
+
         {
             Document = document
             ServerStatusTable = serverStatuses
@@ -88,12 +116,13 @@ module Ui =
             MessageQueueArea = messageQueueArea
             LeaderStateTable = leaderStateTable
             TimeoutField = timeoutField
-            ClientDataField = clientDataField
-            ClientDataServerField = clientDataServerField
             HeartbeatField = heartbeatField
             SelectedLeaderId = selectedLeaderId
             ShowConsumedMessages = showConsumed
             ActionHistory = actionHistory
+            ClientsList = clientsList
+            ClientData = clientInfo
+            ClientCreateServer = clientCreateServer
         }
 
     let reset (clusterSize : int) (ui : UiElements) : RequiresPopulation =
@@ -119,15 +148,22 @@ module Ui =
         ui.SelectedLeaderId.min <- "0"
         ui.SelectedLeaderId.max <- sprintf "%i" (clusterSize - 1)
         ui.SelectedLeaderId.defaultValue <- "0"
-        ui.ClientDataField.max <- "255"
-        ui.ClientDataField.min <- "0"
-        ui.ClientDataField.defaultValue <- "0"
+        ui.ClientData.ClientDataField.max <- "255"
+        ui.ClientData.ClientDataField.min <- "0"
+        ui.ClientData.ClientDataField.defaultValue <- "0"
+        ui.ClientData.ClientDataServerField.max <- string<int> (clusterSize - 1)
+        ui.ClientData.ClientDataServerField.min <- "0"
+        ui.ClientData.ClientDataServerField.defaultValue <- "0"
+        ui.ClientData.ClientIdField.min <- "0"
+        ui.ClientData.ClientIdField.defaultValue <- "0"
+        ui.ClientData.ClientSequenceField.min <- "0"
+        ui.ClientData.ClientSequenceField.defaultValue <- "0"
+        ui.ClientCreateServer.min <- "0"
+        ui.ClientCreateServer.defaultValue <- "0"
+        ui.ClientCreateServer.max <- string<int> (clusterSize - 1)
         ui.HeartbeatField.max <- string<int> (clusterSize - 1)
         ui.HeartbeatField.min <- "0"
         ui.HeartbeatField.defaultValue <- "0"
-        ui.ClientDataServerField.max <- string<int> (clusterSize - 1)
-        ui.ClientDataServerField.min <- "0"
-        ui.ClientDataServerField.defaultValue <- "0"
         ui.TimeoutField.max <- string<int> (clusterSize - 1)
         ui.TimeoutField.min <- "0"
         ui.TimeoutField.defaultValue <- "0"
@@ -147,6 +183,8 @@ module Ui =
         ui.LogArea.innerText <- ""
 
         ui.ShowConsumedMessages.defaultChecked <- false
+
+        ui.ClientsList.innerText <- ""
 
         {
             ServerStatusNodes = serverStatusNodes
@@ -327,6 +365,8 @@ module Ui =
 
     let getUserPrefs<'a>
         (parse : string -> Result<'a, string>)
+        (handleRegisterClientResponse : RegisterClientResponse -> unit)
+        (handleClientDataResponse : ClientResponse -> unit)
         (clusterSize : int)
         (ui : UiElements)
         : UserPreferences<'a>
@@ -338,7 +378,14 @@ module Ui =
                 // TODO write these back out again, and give a button to Load
                 ui.ActionHistory.textContent.Split "\n"
                 |> Seq.filter (not << System.String.IsNullOrEmpty)
-                |> Seq.map (NetworkAction.tryParse<'a> parse None clusterSize)
+                |> Seq.map (
+                    NetworkAction.tryParse<'a>
+                        parse
+                        None
+                        handleRegisterClientResponse
+                        handleClientDataResponse
+                        clusterSize
+                )
                 |> Result.allOkOrError
                 // TODO handle this
                 |> Result.get
