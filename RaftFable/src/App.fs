@@ -1,5 +1,6 @@
 namespace RaftFable
 
+open System
 open System.Collections.Generic
 open System.Security.Cryptography
 open Fable.Core.JS
@@ -62,9 +63,9 @@ module App =
             (fun () ->
                 match response with
                 | RegisterClientResponse.Success client ->
-                    if clients.TryAdd (client, HashSet ()) then
-                        ()
-                    else
+                    try
+                        clients.Add (client, HashSet ())
+                    with :? ArgumentException ->
                         failwith "got a response a second time - need to handle this in the UI"
                 | RegisterClientResponse.NotLeader hint -> failwith "asked a non-leader, have to handle it"
             )

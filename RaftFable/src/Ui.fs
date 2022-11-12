@@ -284,47 +284,48 @@ module Ui =
         | None -> leaderIdBox.innerText <- sprintf "%i: not a leader" userPrefs.LeaderUnderConsideration
         | Some leaderState ->
 
-        let knownStoredIndices =
-            leaderState.MatchIndex
-            |> Seq.mapi (fun target index ->
-                let target = target * 1<ServerId>
+            let knownStoredIndices =
+                leaderState.MatchIndex
+                |> Seq.mapi (fun target index ->
+                    let target = target * 1<ServerId>
 
-                if target = userPrefs.LeaderUnderConsideration then
-                    "(self)"
-                else
-                    sprintf "%i" index
-            )
-            |> Seq.toList
-            |> fun l -> "Log index known to be stored on each node" :: l
-            |> List.map (fun text ->
-                let node = document.createElement "div"
-                node.innerText <- text
-                Some node
-            )
+                    if target = userPrefs.LeaderUnderConsideration then
+                        "(self)"
+                    else
+                        sprintf "%i" index
+                )
+                |> Seq.toList
+                |> fun l -> "Log index known to be stored on each node" :: l
+                |> List.map (fun text ->
+                    let node = document.createElement "div"
+                    node.innerText <- text
+                    Some node
+                )
 
-        Table.createRow document knownStoredIndices ui.LeaderStateTable |> ignore
+            Table.createRow document knownStoredIndices ui.LeaderStateTable |> ignore
 
-        let nextToSend =
-            leaderState.ToSend
-            |> Seq.mapi (fun target index ->
-                let target = target * 1<ServerId>
+            let nextToSend =
+                leaderState.ToSend
+                |> Seq.mapi (fun target index ->
+                    let target = target * 1<ServerId>
 
-                if target = userPrefs.LeaderUnderConsideration then
-                    "(self)"
-                else
-                    sprintf "%i" index
-            )
-            |> Seq.toList
-            |> fun l -> "Will try next to send this index" :: l
-            |> List.map (fun text ->
-                let node = document.createElement "div"
-                node.innerText <- text
-                Some node
-            )
+                    if target = userPrefs.LeaderUnderConsideration then
+                        "(self)"
+                    else
+                        sprintf "%i" index
+                )
+                |> Seq.toList
+                |> fun l -> "Will try next to send this index" :: l
+                |> List.map (fun text ->
+                    let node = document.createElement "div"
+                    node.innerText <- text
+                    Some node
+                )
 
-        Table.createRow document nextToSend ui.LeaderStateTable |> ignore
+            Table.createRow document nextToSend ui.LeaderStateTable |> ignore
 
         Table.createHeaderRow document [ "Client ID" ; "Successful requests" ] ui.ClientsList
+
         // Clients
         for KeyValue (clientId, committed) in state.Clients do
             let clientNode =
@@ -338,8 +339,6 @@ module Ui =
 
                 node.innerText <- text
                 node
-
-            printfn "hi!"
 
             Table.createRow document [ Some clientNode ; Some messagesNode ] ui.ClientsList
             |> ignore
