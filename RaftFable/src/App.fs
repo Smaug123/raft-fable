@@ -137,7 +137,10 @@ module App =
 
     leaderStateButton.onclick <- fun _ -> fullyRerender parseByte userPrefs cluster network
 
+    // TODO: what happens when we try and log client data on a node that doesn't know about the client?
+
     let reloadActions () =
+        // TODO: fix this button, it doesn't work properly
         let newCluster, newNetwork = InMemoryCluster.make<byte> clusterSize
         cluster <- newCluster
         network <- newNetwork
