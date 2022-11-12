@@ -454,8 +454,8 @@ type Server<'a>
                 | None ->
                     // The leader knows what we've committed, so it won't try and give us anything further than
                     // the element immediately past our persisted log.
-                    // TODO - why can't this be -1?
-                    assert (desiredLogInsertionPosition = 1<LogIndex> + persistentState.CurrentLogIndex)
+                    if desiredLogInsertionPosition <> 1<LogIndex> + persistentState.CurrentLogIndex then
+                        failwith "Logic error: the leader has tried to update an entry from our future."
                     // The leader's message is after our log. Append.
                     persistentState.AppendToLog toInsert toInsertTerm
 
