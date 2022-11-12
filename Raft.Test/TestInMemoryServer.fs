@@ -10,57 +10,6 @@ open FsCheck
 module TestInMemoryServer =
 
     [<Test>]
-    let ``Startup sequence, first fumbling steps`` () =
-        let cluster, network = InMemoryCluster.make<int> 5
-
-        let logger, logs = TestLogger.make ()
-
-        // Candidate 1 asks server 0 to vote for it.
-
-        {
-            CandidateTerm = 0<Term>
-            CandidateId = 1<ServerId>
-            ReplyChannel = fun message -> logger (sprintf "Received message for term %i" message.VoterTerm)
-            CandidateLastLogEntry = None
-        }
-        |> Instruction.RequestVote
-        |> Message.Instruction
-        |> cluster.SendMessageDirectly 0<ServerId>
-
-        logs () |> shouldEqual [ "Received message for term 0" ]
-
-        // Candidate 1 asks to be elected again! This is fine, maybe the network is replaying requests
-        // and the network swallowed our reply, so we should reply in the same way.
-        {
-            CandidateTerm = 0<Term>
-            CandidateId = 1<ServerId>
-            ReplyChannel = fun message -> logger (sprintf "Received message for term %i" message.VoterTerm)
-            CandidateLastLogEntry = None
-        }
-        |> Instruction.RequestVote
-        |> Message.Instruction
-        |> cluster.SendMessageDirectly 0<ServerId>
-
-        logs ()
-        |> shouldEqual [ "Received message for term 0" ; "Received message for term 0" ]
-
-        // Candidate 2 asks to be elected. We won't vote for them, because we've already voted.
-        // and the network swallowed our reply, so we should reply in the same way.
-        let calls = ref 0
-
-        {
-            CandidateTerm = 0<Term>
-            CandidateId = 2<ServerId>
-            ReplyChannel = fun _ -> Interlocked.Increment calls |> ignore
-            CandidateLastLogEntry = None
-        }
-        |> Instruction.RequestVote
-        |> Message.Instruction
-        |> cluster.SendMessageDirectly 0<ServerId>
-
-        calls.Value |> shouldEqual 0
-
-    [<Test>]
     let ``Startup sequence in prod, only one timeout takes place`` () =
         let cluster, network = InMemoryCluster.make<int> 5
 

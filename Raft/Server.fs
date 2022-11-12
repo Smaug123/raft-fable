@@ -75,7 +75,6 @@ type RequestVoteMessage =
         CandidateTerm : int<Term>
         CandidateId : int<ServerId>
         CandidateLastLogEntry : LogEntryMetadata option
-        ReplyChannel : RequestVoteReply -> unit
     }
 
     override this.ToString () =
@@ -381,7 +380,9 @@ type Server<'a>
                     VoteGranted = true
                     Candidate = message.CandidateId
                 }
-                |> message.ReplyChannel
+                |> Reply.RequestVoteReply
+                |> Message.Reply
+                |> messageChannel message.CandidateId
 
         | AppendEntries message ->
             // This was guaranteed above.
@@ -695,7 +696,6 @@ type Server<'a>
                                 CandidateTerm = persistentState.CurrentTerm
                                 CandidateId = me
                                 CandidateLastLogEntry = persistentState.GetLastLogEntry () |> Option.map snd
-                                ReplyChannel = fun reply -> messageChannel me (RequestVoteReply reply |> Message.Reply)
                             }
                             |> Instruction.RequestVote
                             |> Message.Instruction
