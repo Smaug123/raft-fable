@@ -2,7 +2,6 @@ namespace RaftFable
 
 open System
 open System.Collections.Generic
-open System.Security.Cryptography
 open Fable.Core.JS
 open Raft
 open Browser.Dom
@@ -66,8 +65,8 @@ module App =
                     try
                         clients.Add (client, HashSet ())
                     with :? ArgumentException ->
-                        failwith "got a response a second time - need to handle this in the UI"
-                | RegisterClientResponse.NotLeader hint -> failwith "asked a non-leader, have to handle it"
+                        failwith "TODO: got a response a second time - need to handle this in the UI"
+                | RegisterClientResponse.NotLeader hint -> failwith "TODO: asked a non-leader, have to handle it"
             )
 
     let handleClientResponse (response : ClientResponse) : unit =
@@ -75,8 +74,8 @@ module App =
             clients
             (fun () ->
                 match response with
-                | ClientResponse.SessionExpired -> failwith "session expired, have to handle it"
-                | ClientResponse.NotLeader hint -> failwith "asked a non-leader, have to handle it"
+                | ClientResponse.SessionExpired -> failwith "TODO: session expired, have to handle it"
+                | ClientResponse.NotLeader hint -> failwith "TODO: asked a non-leader, have to handle it"
                 | ClientResponse.Success (client, sequence) ->
                     match clients.TryGetValue client with
                     | false, _ ->
@@ -140,15 +139,25 @@ module App =
     // TODO: what happens when we try and log client data on a node that doesn't know about the client?
 
     let reloadActions () =
-        // TODO: fix this button, it doesn't work properly
+        // TODO: fix this button, it doesn't work properly in the failure case
+        match Ui.getUserPrefs parseByte handleRegisterClientResponse handleClientResponse clusterSize ui with
+        | Error error ->
+            let error = sprintf "Unable to parse actions: %s" error
+            window.alert error
+            promise { return () }
+
+        | Ok newPrefs ->
+
         let newCluster, newNetwork = InMemoryCluster.make<byte> clusterSize
         cluster <- newCluster
         network <- newNetwork
 
-        userPrefs.Value <- Ui.getUserPrefs parseByte handleRegisterClientResponse handleClientResponse clusterSize ui
+        userPrefs.Value <-
+            { newPrefs with
+                ActionHistory = []
+            }
 
-        startupActions
-        |> fun s -> (fullyRerender parseByte userPrefs cluster network, s)
+        (promise { return () }, userPrefs.Value.ActionHistory)
         ||> List.fold (fun (inPromise : Promise<unit>) action ->
             promise {
                 let! _ = inPromise
@@ -218,7 +227,4 @@ module App =
             NetworkAction.ClientRequest (server, ClientRequest.RegisterClient handleRegisterClientResponse)
             |> perform parseByte userPrefs cluster network
 
-    ui.ShowConsumedMessages.onchange <-
-        fun _event ->
-            printfn "rerendering"
-            fullyRerender parseByte userPrefs cluster network
+    ui.ShowConsumedMessages.onchange <- fun _event -> fullyRerender parseByte userPrefs cluster network

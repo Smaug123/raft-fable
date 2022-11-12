@@ -201,7 +201,7 @@ module Ui =
         let actionList =
             prefs.ActionHistory |> Seq.map NetworkAction.toString |> String.concat "\n"
 
-        ui.ActionHistoryList.textContent <- actionList
+        ui.ActionHistoryList.value <- actionList
 
     let render<'a>
         (perform : NetworkAction<'a> -> Fable.Core.JS.Promise<unit>)
@@ -399,25 +399,23 @@ module Ui =
         (handleClientDataResponse : ClientResponse -> unit)
         (clusterSize : int)
         (ui : UiElements)
-        : UserPreferences<'a>
+        : Result<UserPreferences<'a>, string>
         =
-        {
-            LeaderUnderConsideration = ui.SelectedLeaderId.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
-            ShowConsumedMessages = ui.ShowConsumedMessages.``checked``
-            ActionHistory =
-                // TODO write these back out again, and give a button to Load
-                ui.ActionHistoryList.textContent.Split "\n"
-                |> Seq.filter (not << System.String.IsNullOrEmpty)
-                |> Seq.map (
-                    NetworkAction.tryParse<'a>
-                        parse
-                        None
-                        handleRegisterClientResponse
-                        handleClientDataResponse
-                        clusterSize
-                )
-                |> Result.allOkOrError
-                // TODO handle this
-                |> Result.get
-                |> List.ofSeq
-        }
+        let actionHistory =
+            ui.ActionHistoryList.value.Split "\n"
+            |> Seq.filter (not << System.String.IsNullOrEmpty)
+            |> Seq.map (
+                NetworkAction.tryParse<'a> parse None handleRegisterClientResponse handleClientDataResponse clusterSize
+            )
+            |> Result.allOkOrError
+            |> Result.map List.ofSeq
+
+        match actionHistory with
+        | Result.Ok actionHistory ->
+            {
+                LeaderUnderConsideration = ui.SelectedLeaderId.valueAsNumber |> int |> (fun i -> i * 1<ServerId>)
+                ShowConsumedMessages = ui.ShowConsumedMessages.``checked``
+                ActionHistory = actionHistory
+            }
+            |> Result.Ok
+        | Result.Error e -> Result.Error (snd e |> String.concat "\n")
