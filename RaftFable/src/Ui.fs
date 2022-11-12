@@ -1,5 +1,6 @@
 namespace RaftFable
 
+open System.Collections.Generic
 open Raft
 
 type ClusterState<'a> =
@@ -22,6 +23,8 @@ type UiBackingState<'a> =
     {
         ClusterState : ClusterState<'a>
         UserPreferences : UserPreferences<'a>
+        /// TODO - make this be IReadOnlySet, not HashSet
+        Clients : IReadOnlyDictionary<int<ClientId>, int<ClientSequence> HashSet>
     }
 
 type ClientDataSection =
@@ -43,8 +46,8 @@ type UiElements =
         HeartbeatField : Browser.Types.HTMLInputElement
         SelectedLeaderId : Browser.Types.HTMLInputElement
         ShowConsumedMessages : Browser.Types.HTMLInputElement
-        ActionHistory : Browser.Types.HTMLTextAreaElement
-        ClientsList : Browser.Types.HTMLDivElement
+        ActionHistoryList : Browser.Types.HTMLTextAreaElement
+        ClientsList : Browser.Types.HTMLTableElement
         ClientData : ClientDataSection
         ClientCreateServer : Browser.Types.HTMLInputElement
     }
@@ -57,7 +60,7 @@ type RequiresPopulation =
 [<RequireQualifiedAccess>]
 module Ui =
 
-    let initialise (document : Browser.Types.Document) : UiElements =
+    let initialise<'a> (document : Browser.Types.Document) : UiElements =
         let serverStatuses =
             document.querySelector ".server-statuses" :?> Browser.Types.HTMLTableElement
 
@@ -96,7 +99,8 @@ module Ui =
         let actionHistory =
             document.querySelector ".action-history" :?> Browser.Types.HTMLTextAreaElement
 
-        let clientsList = document.querySelector ".clients" :?> Browser.Types.HTMLDivElement
+        let clientsList =
+            document.querySelector ".clients" :?> Browser.Types.HTMLTableElement
 
         let clientCreateServer =
             document.querySelector ".create-client-server" :?> Browser.Types.HTMLInputElement
@@ -119,7 +123,7 @@ module Ui =
             HeartbeatField = heartbeatField
             SelectedLeaderId = selectedLeaderId
             ShowConsumedMessages = showConsumed
-            ActionHistory = actionHistory
+            ActionHistoryList = actionHistory
             ClientsList = clientsList
             ClientData = clientInfo
             ClientCreateServer = clientCreateServer
@@ -184,11 +188,20 @@ module Ui =
 
         ui.ShowConsumedMessages.defaultChecked <- false
 
+        ui.ClientsList.border <- "1px"
         ui.ClientsList.innerText <- ""
 
         {
             ServerStatusNodes = serverStatusNodes
         }
+
+    let renderPrefs<'a> (prefs : UserPreferences<'a>) (ui : UiElements) : unit =
+
+        // Action list
+        let actionList =
+            prefs.ActionHistory |> Seq.map NetworkAction.toString |> String.concat "\n"
+
+        ui.ActionHistoryList.textContent <- actionList
 
     let render<'a>
         (perform : NetworkAction<'a> -> Fable.Core.JS.Promise<unit>)
@@ -198,13 +211,11 @@ module Ui =
         : unit
         =
         let userPrefs = state.UserPreferences
-        let state = state.ClusterState
-
-        let requiresPopulation = reset state.ClusterSize ui
+        let requiresPopulation = reset state.ClusterState.ClusterSize ui
 
         let rows =
             List.init
-                state.ClusterSize
+                state.ClusterState.ClusterSize
                 (fun i ->
                     let cell = document.createElement "th" :?> Browser.Types.HTMLTableCellElement
                     cell.textContent <- sprintf "Server %i" i
@@ -213,7 +224,7 @@ module Ui =
 
         rows
         |> List.iteri (fun i row ->
-            let state = state.InternalState.[i]
+            let state = state.ClusterState.InternalState.[i]
 
             for logEntry in state.Log do
                 let cell = document.createElement "td" :?> Browser.Types.HTMLTableCellElement
@@ -225,18 +236,18 @@ module Ui =
                 row.appendChild cell |> ignore
         )
 
-        for i in 0 .. state.ClusterSize - 1 do
-            let status = state.Statuses.[i]
+        for i in 0 .. state.ClusterState.ClusterSize - 1 do
+            let status = state.ClusterState.Statuses.[i]
             requiresPopulation.ServerStatusNodes.[i].textContent <- status |> string<ServerStatus>
 
         // Network status
         let allButtons =
-            [ 0 .. state.ClusterSize - 1 ]
+            [ 0 .. state.ClusterState.ClusterSize - 1 ]
             |> List.map (fun i ->
                 if userPrefs.ShowConsumedMessages then
-                    state.AllMessages.[i] |> List.indexed
+                    state.ClusterState.AllMessages.[i] |> List.indexed
                 else
-                    state.UndeliveredMessages.[i]
+                    state.ClusterState.UndeliveredMessages.[i]
                 |> List.map (fun (messageId, message) ->
                     Button.create
                         document
@@ -267,7 +278,7 @@ module Ui =
         leaderIdBox.innerText <- sprintf "%i" userPrefs.LeaderUnderConsideration
 
         let leaderState =
-            state.InternalState.[userPrefs.LeaderUnderConsideration / 1<ServerId>]
+            state.ClusterState.InternalState.[userPrefs.LeaderUnderConsideration / 1<ServerId>]
 
         match leaderState.LeaderState with
         | None -> leaderIdBox.innerText <- sprintf "%i: not a leader" userPrefs.LeaderUnderConsideration
@@ -312,6 +323,26 @@ module Ui =
             )
 
         Table.createRow document nextToSend ui.LeaderStateTable |> ignore
+
+        Table.createHeaderRow document [ "Client ID" ; "Successful requests" ] ui.ClientsList
+        // Clients
+        for KeyValue (clientId, committed) in state.Clients do
+            let clientNode =
+                let node = document.createElement "div"
+                node.innerText <- sprintf "%i" clientId
+                node
+
+            let messagesNode =
+                let node = document.createElement "div"
+                let text = committed |> Seq.map (sprintf "%i") |> String.concat ","
+
+                node.innerText <- text
+                node
+
+            printfn "hi!"
+
+            Table.createRow document [ Some clientNode ; Some messagesNode ] ui.ClientsList
+            |> ignore
 
     let freezeState<'a> (cluster : Cluster<'a>) (network : Network<'a>) : ClusterState<'a> Async =
         let internalState =
@@ -376,7 +407,7 @@ module Ui =
             ShowConsumedMessages = ui.ShowConsumedMessages.``checked``
             ActionHistory =
                 // TODO write these back out again, and give a button to Load
-                ui.ActionHistory.textContent.Split "\n"
+                ui.ActionHistoryList.textContent.Split "\n"
                 |> Seq.filter (not << System.String.IsNullOrEmpty)
                 |> Seq.map (
                     NetworkAction.tryParse<'a>

@@ -1,5 +1,7 @@
 namespace RaftFable
 
+open System.Collections.Generic
+open System.Security.Cryptography
 open Fable.Core.JS
 open Raft
 open Browser.Dom
@@ -8,68 +10,7 @@ open Fable.Core
 module App =
 
     let clusterSize = 5
-
     let ui = Ui.initialise document
-
-    let handleRegisterClientResponse (response : RegisterClientResponse) : unit = printfn "%O" response
-
-    let handleClientResponse (response : ClientResponse) : unit = printfn "%O" response
-
-    let rec fullyRerender<'a>
-        (parse : string -> Result<'a, string>)
-        (userPrefs : UserPreferences<'a> ref)
-        (cluster : Cluster<'a>)
-        (network : Network<'a>)
-        : Promise<unit>
-        =
-        userPrefs.Value <-
-            Ui.getUserPrefs<'a> parse handleRegisterClientResponse handleClientResponse cluster.ClusterSize ui
-
-        Ui.freezeState cluster network
-        |> Async.StartAsPromise
-        |> fun p ->
-            p.``then`` (fun clusterState ->
-                Ui.render<'a>
-                    (perform<'a> parse userPrefs cluster network)
-                    document
-                    ui
-                    {
-                        UserPreferences = userPrefs.Value
-                        ClusterState = clusterState
-                    }
-            )
-
-    and perform<'a>
-        (parse : string -> Result<'a, string>)
-        (userPrefs : UserPreferences<'a> ref)
-        (cluster : Cluster<'a>)
-        (network : Network<'a>)
-        (action : NetworkAction<'a>)
-        : Promise<unit>
-        =
-        NetworkAction.perform cluster network action
-
-        userPrefs.Value <-
-            { userPrefs.Value with
-                ActionHistory = action :: userPrefs.Value.ActionHistory
-            }
-
-        fullyRerender parse userPrefs cluster network
-
-    let parseByte (s : string) =
-        match System.Byte.TryParse s with
-        | false, _ -> Error (sprintf "Expected byte, got '%s'" s)
-        | true, v -> Ok v
-
-    let userPrefs : UserPreferences<byte> ref =
-        ref (Ui.getUserPrefs parseByte handleRegisterClientResponse handleClientResponse clusterSize ui)
-
-    let mutable cluster, network = InMemoryCluster.make<byte> clusterSize
-
-    let leaderStateButton =
-        document.querySelector ".leader-select-button" :?> Browser.Types.HTMLButtonElement
-
-    leaderStateButton.onclick <- fun _ -> fullyRerender parseByte userPrefs cluster network
 
     let startupActions : NetworkAction<byte> list =
         [
@@ -103,7 +44,97 @@ module App =
             NetworkAction.NetworkMessage (1<ServerId>, 6)
         ]
 
-    ui.ActionHistory.textContent <- startupActions |> Seq.map NetworkAction.toString |> String.concat "\n"
+    let userPrefs =
+        ref
+            {
+                ActionHistory = startupActions
+                ShowConsumedMessages = false
+                LeaderUnderConsideration = 0<ServerId>
+            }
+
+    Ui.renderPrefs userPrefs.Value ui
+
+    let clients = Dictionary<int<ClientId>, int<ClientSequence> HashSet> ()
+
+    let handleRegisterClientResponse (response : RegisterClientResponse) : unit =
+        lock
+            clients
+            (fun () ->
+                match response with
+                | RegisterClientResponse.Success client ->
+                    if clients.TryAdd (client, HashSet ()) then
+                        ()
+                    else
+                        failwith "got a response a second time - need to handle this in the UI"
+                | RegisterClientResponse.NotLeader hint -> failwith "asked a non-leader, have to handle it"
+            )
+
+    let handleClientResponse (response : ClientResponse) : unit =
+        lock
+            clients
+            (fun () ->
+                match response with
+                | ClientResponse.SessionExpired -> failwith "session expired, have to handle it"
+                | ClientResponse.NotLeader hint -> failwith "asked a non-leader, have to handle it"
+                | ClientResponse.Success (client, sequence) ->
+                    match clients.TryGetValue client with
+                    | false, _ ->
+                        failwithf "Logic error: committed a client request for a non-existent client %i" client
+                    | true, v -> v.Add sequence |> ignore
+            )
+
+    let rec fullyRerender<'a>
+        (parse : string -> Result<'a, string>)
+        (userPrefs : UserPreferences<'a> ref)
+        (cluster : Cluster<'a>)
+        (network : Network<'a>)
+        : Promise<unit>
+        =
+        Ui.freezeState cluster network
+        |> Async.StartAsPromise
+        |> fun p ->
+            p.``then`` (fun clusterState ->
+                Ui.render<'a>
+                    (perform<'a> parse userPrefs cluster network)
+                    document
+                    ui
+                    {
+                        UserPreferences = userPrefs.Value
+                        ClusterState = clusterState
+                        Clients = clients :> IReadOnlyDictionary<_, _>
+                    }
+
+                Ui.renderPrefs userPrefs.Value ui
+            )
+
+    and perform<'a>
+        (parse : string -> Result<'a, string>)
+        (userPrefs : UserPreferences<'a> ref)
+        (cluster : Cluster<'a>)
+        (network : Network<'a>)
+        (action : NetworkAction<'a>)
+        : Promise<unit>
+        =
+        NetworkAction.perform cluster network action
+
+        userPrefs.Value <-
+            { userPrefs.Value with
+                ActionHistory = userPrefs.Value.ActionHistory @ [ action ]
+            }
+
+        fullyRerender parse userPrefs cluster network
+
+    let parseByte (s : string) =
+        match System.Byte.TryParse s with
+        | false, _ -> Error (sprintf "Expected byte, got '%s'" s)
+        | true, v -> Ok v
+
+    let mutable cluster, network = InMemoryCluster.make<byte> clusterSize
+
+    let leaderStateButton =
+        document.querySelector ".leader-select-button" :?> Browser.Types.HTMLButtonElement
+
+    leaderStateButton.onclick <- fun _ -> fullyRerender parseByte userPrefs cluster network
 
     let reloadActions () =
         let newCluster, newNetwork = InMemoryCluster.make<byte> clusterSize
@@ -183,4 +214,7 @@ module App =
             NetworkAction.ClientRequest (server, ClientRequest.RegisterClient handleRegisterClientResponse)
             |> perform parseByte userPrefs cluster network
 
-    ui.ShowConsumedMessages.onchange <- fun _event -> fullyRerender parseByte userPrefs cluster network
+    ui.ShowConsumedMessages.onchange <-
+        fun _event ->
+            printfn "rerendering"
+            fullyRerender parseByte userPrefs cluster network
