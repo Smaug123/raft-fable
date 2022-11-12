@@ -118,9 +118,6 @@ type AppendEntriesMessage<'a> =
         /// with what happened during terms that took place while it was down.
         NewEntry : (LogEntry<'a> * int<Term>) option
         LeaderCommitIndex : int<LogIndex>
-        /// TODO - we don't need this, the responder should just construct
-        /// the appropriate Message and send it themselves
-        ReplyChannel : AppendEntriesReply -> unit
     }
 
     override this.ToString () =
@@ -397,7 +394,9 @@ type Server<'a>
                     Success = None
                     Follower = me
                 }
-                |> message.ReplyChannel
+                |> Reply.AppendEntriesReply
+                |> Message.Reply
+                |> messageChannel message.LeaderId
 
             else
 
@@ -416,7 +415,9 @@ type Server<'a>
                     FollowerTerm = persistentState.CurrentTerm
                     Follower = me
                 }
-                |> message.ReplyChannel
+                |> Reply.AppendEntriesReply
+                |> Message.Reply
+                |> messageChannel message.LeaderId
 
             let acceptRequest () : unit =
                 match currentType with
@@ -449,7 +450,9 @@ type Server<'a>
                         FollowerTerm = persistentState.CurrentTerm
                         Follower = me
                     }
-                    |> message.ReplyChannel
+                    |> Reply.AppendEntriesReply
+                    |> Message.Reply
+                    |> messageChannel message.LeaderId
 
                 | None ->
                     // The leader knows what we've committed, so it won't try and give us anything further than
@@ -464,7 +467,9 @@ type Server<'a>
                         FollowerTerm = persistentState.CurrentTerm
                         Follower = me
                     }
-                    |> message.ReplyChannel
+                    |> Reply.AppendEntriesReply
+                    |> Message.Reply
+                    |> messageChannel message.LeaderId
 
             let logIsConsistent (message : AppendEntriesMessage<'a>) : bool =
                 match message.PrevLogEntry with
@@ -502,7 +507,9 @@ type Server<'a>
                         Success = None
                         Follower = me
                     }
-                    |> message.ReplyChannel
+                    |> Reply.AppendEntriesReply
+                    |> Message.Reply
+                    |> messageChannel message.LeaderId
 
                 else
                     acceptRequest ()
@@ -537,7 +544,6 @@ type Server<'a>
                     |> Some
             NewEntry = persistentState.GetLogEntry toSend
             LeaderCommitIndex = volatileState.CommitIndex
-            ReplyChannel = fun reply -> reply |> Reply.AppendEntriesReply |> Message.Reply |> messageChannel me
         }
         |> Instruction.AppendEntries
         |> Message.Instruction
