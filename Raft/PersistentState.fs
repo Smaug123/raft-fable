@@ -58,7 +58,7 @@ type InMemoryPersistentState<'a> () =
             if log.Count = 0 then
                 None
             else
-                let stored, term = log[log.Count - 1]
+                let stored, term = log.[log.Count - 1]
 
                 Some (
                     stored,
@@ -73,6 +73,6 @@ type InMemoryPersistentState<'a> () =
 
             if log.Count < position then None
             elif position <= 0 then None
-            else Some log[position - 1]
+            else Some log.[position - 1]
 
         member this.CurrentLogIndex = log.Count * 1<LogIndex>

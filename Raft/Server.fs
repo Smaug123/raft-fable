@@ -219,7 +219,7 @@ type private CandidateState =
 
     static member New (count : int) (self : int<ServerId>) =
         let votes = Array.zeroCreate<_> count
-        votes[self / 1<ServerId>] <- Some true
+        votes.[self / 1<ServerId>] <- Some true
 
         {
             Votes = votes
@@ -270,12 +270,12 @@ module internal ServerUtils =
             if i < 0 then
                 result
             else
-                let numberCounted = numberCounted + snd numberWhoCommittedIndex[i]
+                let numberCounted = numberCounted + snd numberWhoCommittedIndex.[i]
 
                 if numberCounted > matchIndex.Length / 2 then
-                    fst numberWhoCommittedIndex[i]
+                    fst numberWhoCommittedIndex.[i]
                 else
-                    go numberCounted (fst numberWhoCommittedIndex[i]) (i - 1)
+                    go numberCounted (fst numberWhoCommittedIndex.[i]) (i - 1)
 
         go 0 0<LogIndex> (numberWhoCommittedIndex.Length - 1)
 
@@ -528,7 +528,7 @@ type Server<'a>
                 acceptRequest ()
 
     let sendAppendEntries (leaderState : LeaderState) (j : int<ServerId>) =
-        let toSend = leaderState.ToSend[j / 1<ServerId>]
+        let toSend = leaderState.ToSend.[j / 1<ServerId>]
         let prevLogTerm = persistentState.GetLogEntry (toSend - 1<LogIndex>)
 
         {
@@ -572,14 +572,14 @@ type Server<'a>
                 match appendEntriesReply.Success with
                 | Some matchIndex ->
                     // They applied our request. Update our record of what we know they have applied...
-                    leaderState.MatchIndex[appendEntriesReply.Follower / 1<ServerId>] <- matchIndex
+                    leaderState.MatchIndex.[appendEntriesReply.Follower / 1<ServerId>] <- matchIndex
                     // ... and update our record of what we'll be sending them next.
-                    leaderState.ToSend[appendEntriesReply.Follower / 1<ServerId>] <- matchIndex + 1<LogIndex>
+                    leaderState.ToSend.[appendEntriesReply.Follower / 1<ServerId>] <- matchIndex + 1<LogIndex>
                 | None ->
                     // They failed to apply our request. Next time, we'll be trying one message further
                     // back in our history.
-                    leaderState.ToSend[appendEntriesReply.Follower / 1<ServerId>] <-
-                        max (leaderState.ToSend[appendEntriesReply.Follower / 1<ServerId>] - 1<LogIndex>) 1<LogIndex>
+                    leaderState.ToSend.[appendEntriesReply.Follower / 1<ServerId>] <-
+                        max (leaderState.ToSend.[appendEntriesReply.Follower / 1<ServerId>] - 1<LogIndex>) 1<LogIndex>
                 // Note that the decision to process this *here* means the algorithm doesn't work in clusters of
                 // only one node, because then there will never be any AppendEntries replies.
                 let maxLogAQuorumHasCommitted =
@@ -650,7 +650,7 @@ type Server<'a>
             | ServerSpecialisation.Candidate state ->
 
             if requestVoteReply.VoterTerm = persistentState.CurrentTerm then
-                state.Votes[requestVoteReply.Voter / 1<ServerId>] <- Some requestVoteReply.VoteGranted
+                state.Votes.[requestVoteReply.Voter / 1<ServerId>] <- Some requestVoteReply.VoteGranted
 
                 // Inefficient, but :shrug:
                 if
@@ -715,7 +715,7 @@ type Server<'a>
                                 (RaftOverhead (NewClientRegistered replyChannel))
                                 persistentState.CurrentTerm
 
-                            leaderState.MatchIndex[me / 1<ServerId>] <- persistentState.CurrentLogIndex
+                            leaderState.MatchIndex.[me / 1<ServerId>] <- persistentState.CurrentLogIndex
 
                             emitHeartbeat leaderState
                     | ClientRequest.ClientRequest (client, sequenceNumber, toAdd, replyChannel) ->
@@ -725,7 +725,7 @@ type Server<'a>
                                 (LogEntry.ClientEntry (toAdd, client, sequenceNumber, replyChannel))
                                 persistentState.CurrentTerm
 
-                            leaderState.MatchIndex[me / 1<ServerId>] <- persistentState.CurrentLogIndex
+                            leaderState.MatchIndex.[me / 1<ServerId>] <- persistentState.CurrentLogIndex
 
                             emitHeartbeat leaderState
                         | ServerSpecialisation.Follower followerState ->

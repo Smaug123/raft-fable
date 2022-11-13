@@ -27,7 +27,7 @@ module TestInMemoryServer =
         let property (action : NetworkAction<byte>) =
             let roundTripped =
                 NetworkAction.toString action
-                |> NetworkAction.tryParse parseByte None ignore ignore 5
+                |> NetworkAction.tryParseString parseByte None ignore ignore 5
                 |> Result.get
 
             match roundTripped, action with

@@ -402,13 +402,20 @@ module Ui =
         : Result<UserPreferences<'a>, string>
         =
         let actionHistory =
-            ui.ActionHistoryList.value.Split "\n"
-            |> Seq.filter (not << System.String.IsNullOrEmpty)
-            |> Seq.map (
-                NetworkAction.tryParse<'a> parse None handleRegisterClientResponse handleClientDataResponse clusterSize
-            )
-            |> Result.allOkOrError
-            |> Result.map List.ofSeq
+            let arr = ResizeArray ()
+
+            for i in StringSplitEnumerator.make '\n' ui.ActionHistoryList.value do
+                if not (EfficientString.isEmpty i) then
+                    NetworkAction.tryParse<'a>
+                        parse
+                        None
+                        handleRegisterClientResponse
+                        handleClientDataResponse
+                        clusterSize
+                        i
+                    |> arr.Add
+
+            Result.allOkOrError arr |> Result.map List.ofSeq
 
         match actionHistory with
         | Result.Ok actionHistory ->

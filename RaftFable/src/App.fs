@@ -64,7 +64,8 @@ module App =
                 | RegisterClientResponse.Success client ->
                     try
                         clients.Add (client, HashSet ())
-                    with :? ArgumentException ->
+                    with _ ->
+                        // This is ArgumentException, but Fable can't type-test that
                         failwith "TODO: got a response a second time - need to handle this in the UI"
                 | RegisterClientResponse.NotLeader hint -> failwith "TODO: asked a non-leader, have to handle it"
             )
@@ -157,7 +158,7 @@ module App =
                 ActionHistory = []
             }
 
-        (promise { return () }, userPrefs.Value.ActionHistory)
+        (promise { return () }, newPrefs.ActionHistory)
         ||> List.fold (fun (inPromise : Promise<unit>) action ->
             promise {
                 let! _ = inPromise

@@ -56,7 +56,7 @@ module Program =
             | ClientResponse.Success (client, sequence) ->
                 printfn "Raft has committed request from client %i with sequence number %i" client sequence
 
-        match NetworkAction.tryParse parseByte (Some leaders) handleRegister handleResponse clusterSize s with
+        match NetworkAction.tryParseString parseByte (Some leaders) handleRegister handleResponse clusterSize s with
         | Ok action -> action
         | Error e ->
             printfn "%s" e
