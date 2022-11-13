@@ -20,20 +20,6 @@ module ValidHistory =
 
         if isValid then Some (ValidHistory history) else None
 
-    let rec private networkActionGenNoClientRequests<'a> (clusterSize : int) : Gen<NetworkAction<'a>> =
-        gen {
-            let! choice = Arb.generate<NetworkAction<'a>>
-            let! server = Gen.choose (0, clusterSize - 1)
-            let server = server * 1<ServerId>
-
-            match choice with
-            | NetworkAction.InactivityTimeout _ -> return NetworkAction.InactivityTimeout server
-            | NetworkAction.NetworkMessage (_, message) -> return NetworkAction.NetworkMessage (server, abs message)
-            | NetworkAction.DropMessage (_, message) -> return NetworkAction.DropMessage (server, abs message)
-            | NetworkAction.Heartbeat _ -> return NetworkAction.Heartbeat server
-            | NetworkAction.ClientRequest _ -> return! networkActionGenNoClientRequests clusterSize
-        }
-
     let private historyGenOfLength<'a>
         (elementGen : Gen<'a>)
         (clusterSize : int)

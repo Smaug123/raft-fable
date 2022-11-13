@@ -9,6 +9,9 @@
 
     <ItemGroup>
         <Compile Include="Logger.fs" />
+        <Compile Include="Result.fs" />
+        <Compile Include="NetworkAction.fs" />
+        <Compile Include="TestNetworkAction.fs" />
         <Compile Include="ValidHistory.fs" />
         <Compile Include="TestInMemoryServer.fs" />
         <Compile Include="TestInMemoryPersistentState.fs" />

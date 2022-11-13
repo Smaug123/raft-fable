@@ -1,16 +1,21 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-      <TargetFramework>netstandard2.0</TargetFramework>
+      <TargetFrameworks>netstandard2.0;netstandard2.1</TargetFrameworks>
       <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
 
     <ItemGroup>
       <Compile Include="AssemblyInfo.fs" />
       <Compile Include="Domain.fs" />
+      <Compile Include="EfficientString.fs" />
       <Compile Include="PersistentState.fs" />
       <Compile Include="Server.fs" />
       <Compile Include="InMemory.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Update="FSharp.Core" Version="4.3.4" />
     </ItemGroup>
 
 </Project>

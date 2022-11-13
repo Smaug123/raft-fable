@@ -9,6 +9,45 @@ open FsCheck
 [<TestFixture>]
 module TestInMemoryServer =
 
+    let check<'T> (prop : 'T) =
+        let config =
+            { Config.QuickThrowOnFailure with
+                MaxTest = 1000
+            }
+
+        Check.One (config, prop)
+
+    let parseByte (s : string) : Result<byte, string> =
+        match System.Byte.TryParse s with
+        | false, _ -> Error (sprintf "oh no: %s" s)
+        | true, v -> Ok v
+
+    [<Test>]
+    let ``Can round-trip NetworkAction`` () =
+        let property (action : NetworkAction<byte>) =
+            let roundTripped =
+                NetworkAction.toString action
+                |> NetworkAction.tryParse parseByte None ignore ignore 5
+                |> Result.get
+
+            match roundTripped, action with
+            | NetworkAction.ClientRequest (server1, request1), NetworkAction.ClientRequest (server2, request2) ->
+                match request1, request2 with
+                | ClientRequest.ClientRequest (client1, seq1, data1, _),
+                  ClientRequest.ClientRequest (client2, seq2, data2, _) ->
+                    server1 = server2 && client1 = client2 && seq1 = seq2 && data1 = data2
+                | ClientRequest.RegisterClient _, ClientRequest.RegisterClient _ -> server1 = server2
+                | _, _ -> false
+            | NetworkAction.InactivityTimeout server1, NetworkAction.InactivityTimeout server2 -> server1 = server2
+            | NetworkAction.Heartbeat server1, NetworkAction.Heartbeat server2 -> server1 = server2
+            | NetworkAction.DropMessage (server1, message1), NetworkAction.DropMessage (server2, message2) ->
+                server1 = server2 && message1 = message2
+            | NetworkAction.NetworkMessage (server1, message1), NetworkAction.NetworkMessage (server2, message2) ->
+                server1 = server2 && message1 = message2
+            | _, _ -> false
+
+        property |> Prop.forAll (NetworkAction.generate 5 |> Arb.fromGen) |> check
+
     [<Test>]
     let ``Startup sequence in prod, only one timeout takes place`` () =
         let cluster, network = InMemoryCluster.make<int> 5
@@ -167,14 +206,6 @@ module TestInMemoryServer =
 
             if entry < messages.Length then
                 cluster.SendMessageDirectly pile messages.[entry]
-
-    let check (prop : Property) =
-        let config =
-            { Config.QuickThrowOnFailure with
-                MaxTest = 1000
-            }
-
-        Check.One (config, prop)
 
     [<Test>]
     let ``Startup sequence in prod, two timeouts at once, property-based: at most one leader is elected`` () =

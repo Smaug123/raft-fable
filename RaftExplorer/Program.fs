@@ -140,5 +140,4 @@ module Program =
 
         // TODO: log out the committed state so that we can see whether the leader is correctly
         // processing heartbeat responses
-
         0
