@@ -1,0 +1,10 @@
+steps:
+  echo:
+    image: alpine
+    commands:
+      - echo "All required checks complete"
+
+depends_on:
+  - build
+
+skip_clone: true
