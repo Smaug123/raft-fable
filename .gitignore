@@ -10,3 +10,4 @@ riderModule.iml
 *.fs.js
 node_modules/
 .profile*
+RaftFable/public/bundle.js

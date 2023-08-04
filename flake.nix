@@ -1,10 +1,6 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs";
-    alejandra = {
-      inputs.nixpkgs.follows = "nixpkgs";
-      url = "github:kamadorueda/alejandra/3.0.0";
-    };
     flake-utils = {
       url = "github:numtide/flake-utils";
     };
@@ -13,7 +9,6 @@
   outputs = inputs @ {
     self,
     nixpkgs,
-    alejandra,
     flake-utils,
     ...
   }:
@@ -22,7 +17,7 @@
     in {
       devShells.default = pkgs.mkShell {
         buildInputs =
-          [alejandra.defaultPackage.${system} pkgs.nodejs-14_x pkgs.dotnet-sdk_6]
+          [pkgs.alejandra pkgs.nodejs pkgs.dotnet-sdk_6]
           ++ (
             if pkgs.stdenv.isDarwin
             then [pkgs.darwin.apple_sdk.frameworks.CoreServices]
