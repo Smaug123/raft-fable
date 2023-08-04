@@ -1,5 +1,8 @@
 # Raft
 
+
+[![CI](https://woodpecker.patrickstevens.co.uk/api/badges/patrick/raft-fable/status.svg)](https://woodpecker.patrickstevens.co.uk/api/badges/patrick/raft-fable/status.svg)
+
 A Raft implementation in F#.
 It allows pluggable persistent-store back-ends and communication channels, but out of the box you get an in-memory store and a simulated network.
 

@@ -4,14 +4,13 @@ steps:
         commands:
           - echo 'experimental-features = flakes nix-command' >> /etc/nix/nix.conf
           # Lint
-          - nix develop --command dotnet -- tool restore
-          - nix develop --command ./hooks/pre-push
+          - "nix develop --command bash -c 'dotnet tool restore && ./hooks/pre-push'"
           # Test
           - nix develop --command dotnet -- test
           - nix develop --command dotnet -- test --configuration Release
           # Perform build
           - "pushd RaftFable && nix develop --command npm -- install && popd"
-          - "pushd RaftFable && nix develop --command npm -- run-script webpack && popd"
+          - "pushd RaftFable && nix develop --command npm -- run-script build && popd"
 
 when:
   evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == CI_REPO_DEFAULT_BRANCH) || (CI_PIPELINE_EVENT == "pull_request")'

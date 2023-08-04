@@ -12,12 +12,12 @@
     flake-utils,
     ...
   }:
-    flake-utils.lib.eachSystem [flake-utils.lib.system.aarch64-darwin] (system: let
+    flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
     in {
       devShells.default = pkgs.mkShell {
         buildInputs =
-          [pkgs.alejandra pkgs.nodejs pkgs.dotnet-sdk_6]
+          [pkgs.alejandra pkgs.nodejs pkgs.dotnet-sdk_6 pkgs.python3]
           ++ (
             if pkgs.stdenv.isDarwin
             then [pkgs.darwin.apple_sdk.frameworks.CoreServices]
