@@ -11,3 +11,4 @@ riderModule.iml
 node_modules/
 .profile*
 RaftFable/public/bundle.js
+.direnv/
