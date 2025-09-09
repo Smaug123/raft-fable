@@ -1,6 +1,7 @@
 namespace Raft.Test
 
 open FsCheck
+open FsCheck.FSharp
 open Raft
 
 [<RequireQualifiedAccess>]
@@ -8,7 +9,7 @@ module NetworkAction =
 
     let generate<'a> (clusterSize : int) : Gen<NetworkAction<'a>> =
         gen {
-            let! choice = Arb.generate<NetworkAction<'a>>
+            let! choice = ArbMap.defaults |> ArbMap.generate<NetworkAction<'a>>
             let! server = Gen.choose (0, clusterSize - 1)
             let server = server * 1<ServerId>
 

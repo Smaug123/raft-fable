@@ -1,6 +1,7 @@
 namespace Raft.Test
 
 open System.Threading
+open FsCheck.FSharp
 open Raft
 open NUnit.Framework
 open FsUnitTyped
@@ -10,10 +11,7 @@ open FsCheck
 module TestInMemoryServer =
 
     let check<'T> (prop : 'T) =
-        let config =
-            { Config.QuickThrowOnFailure with
-                MaxTest = 1000
-            }
+        let config = Config.QuickThrowOnFailure.WithMaxTest(1000).WithQuietOnSuccess (true)
 
         Check.One (config, prop)
 
@@ -194,7 +192,7 @@ module TestInMemoryServer =
     let networkMessageSelectionGen (clusterSize : int) : Gen<NetworkMessageSelection> =
         gen {
             let! pile = Gen.choose (0, clusterSize - 1)
-            let! entry = Arb.generate<int>
+            let! entry = ArbMap.defaults |> ArbMap.generate<int>
             return (pile * 1<ServerId>, abs entry)
         }
         |> Gen.listOf
@@ -425,7 +423,7 @@ module TestInMemoryServer =
             firstTime = secondTime
 
         property
-        |> Prop.forAll (ValidHistory.arb (Arb.Default.Byte().Generator) clusterSize)
+        |> Prop.forAll (ValidHistory.arb (ArbMap.defaults |> ArbMap.generate<byte>) clusterSize)
         |> check
 
 
@@ -448,7 +446,7 @@ module TestInMemoryServer =
             List.distinct leaders = leaders
 
         property
-        |> Prop.forAll (ValidHistory.arb (Arb.Default.Byte().Generator) clusterSize)
+        |> Prop.forAll (ValidHistory.arb (ArbMap.defaults |> ArbMap.generate<byte>) clusterSize)
         |> check
 
     let duplicationProperty<'a when 'a : equality>

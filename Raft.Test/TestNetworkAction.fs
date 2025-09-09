@@ -1,5 +1,6 @@
 namespace Raft.Test
 
+open FsCheck.FSharp
 open Raft
 open System.Collections.Generic
 open NUnit.Framework

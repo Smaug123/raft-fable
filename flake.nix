@@ -1,13 +1,12 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs";
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     flake-utils = {
       url = "github:numtide/flake-utils";
     };
   };
 
-  outputs = inputs @ {
-    self,
+  outputs = {
     nixpkgs,
     flake-utils,
     ...
@@ -17,12 +16,7 @@
     in {
       devShells.default = pkgs.mkShell {
         buildInputs =
-          [pkgs.alejandra pkgs.nodejs pkgs.dotnet-sdk_6 pkgs.python3]
-          ++ (
-            if pkgs.stdenv.isDarwin
-            then [pkgs.darwin.apple_sdk.frameworks.CoreServices]
-            else []
-          );
+          [pkgs.alejandra pkgs.nodejs pkgs.dotnet-sdk_9 pkgs.python3 pkgs.xmlstarlet];
       };
     });
 }

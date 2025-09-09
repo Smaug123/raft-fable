@@ -6,11 +6,11 @@ steps:
       # Lint
       - "nix develop --command bash -c 'dotnet tool restore && ./hooks/pre-push'"
       # Test
-      - nix develop --command dotnet -- test
-      - nix develop --command dotnet -- test --configuration Release
+      - nix develop --command dotnet test
+      - nix develop --command dotnet test --configuration Release
       # Perform build
-      - "pushd RaftFable && nix develop --command npm -- install && popd"
-      - "pushd RaftFable && nix develop --command npm -- run-script build && popd"
+      - "pushd RaftFable && nix develop --command npm install && popd"
+      - "pushd RaftFable && nix develop --command npm run-script build && popd"
 
     when:
       - event: "push"

@@ -2,6 +2,7 @@ namespace Raft.Test
 
 open Raft
 open FsCheck
+open FsCheck.FSharp
 
 type ValidHistory<'a> = | ValidHistory of NetworkAction<'a> list
 
